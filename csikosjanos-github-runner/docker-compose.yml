@@ -1,0 +1,42 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-github-runner_server_1
+      APP_PORT: 80
+      PROXY_AUTH_ADD: "false"
+
+  # Tiny status page so the app_proxy has a healthy upstream and the
+  # "Open" button shows something instead of a 502. No real UI.
+  server:
+    image: nginx:alpine
+    restart: on-failure
+    command:
+      - sh
+      - -c
+      - >-
+        printf '<!doctype html><meta charset=utf-8><title>GitHub Runner</title>
+        <body style="font-family:system-ui;max-width:40rem;margin:3rem auto;padding:0 1rem">
+        <h1>GitHub Actions Runner</h1>
+        <p>Self-hosted org runner (headless &ndash; no web UI).</p>
+        <p>Runner status is in the container logs:</p>
+        <pre>sudo docker logs -f csikosjanos-github-runner_runner_1</pre></body>'
+        > /usr/share/nginx/html/index.html && exec nginx -g 'daemon off;'
+    security_opt:
+      - no-new-privileges:true
+
+  runner:
+    image: myoung34/github-runner:latest
+    restart: unless-stopped
+    environment:
+      RUNNER_SCOPE: org
+      ORG_NAME: ${ORG_NAME}
+      ACCESS_TOKEN: ${ACCESS_TOKEN}
+      RUNNER_NAME: rozsa-umbrel
+      RUNNER_GROUP: default
+      LABELS: self-hosted,linux,x64,umbrel
+      EPHEMERAL: "false"
+      DISABLE_AUTO_UPDATE: "true"
+    security_opt:
+      - no-new-privileges:true

@@ -1,0 +1,36 @@
+manifestVersion: 1
+id: csikosjanos-github-runner
+name: GitHub Runner
+tagline: Self-hosted GitHub Actions runner for your org
+icon: https://raw.githubusercontent.com/github/explore/main/topics/actions/actions.png
+category: developer
+version: "1.0.0"
+port: 9200
+description: >-
+  A self-hosted GitHub Actions runner, packaged as an Umbrel app so it is
+  managed by umbreld and survives reboots and OTA updates (unlike a manually
+  started container, which umbreld removes on each boot).
+
+
+  Registers as an organisation-wide runner using a GitHub PAT, so it can pick
+  up jobs from any repository in the org that targets it with
+  `runs-on: [self-hosted, umbrel]`.
+
+
+  The runner image is minimal — jobs should bring their own toolchains via
+  `actions/setup-node`, `actions/setup-python`, etc. Configure the org name and
+  PAT after install by editing the app's `.env` (see README). This app has no
+  real web UI; the "Open" page only shows status text — check the container
+  logs for runner activity.
+developer: myoung34 (runner image), packaged by csikosjanos
+website: https://github.com/csikosjanos/umbrel-app-store
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/myoung34/docker-github-actions-runner
+support: https://github.com/csikosjanos/umbrel-app-store/issues
+gallery: []
+releaseNotes: ""
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
