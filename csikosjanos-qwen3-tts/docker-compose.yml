@@ -20,7 +20,7 @@ services:
       MODEL_NAME: "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"   # only model that fits 8GB alone
       DEVICE: "cuda:0"
       DTYPE: "bfloat16"
-      USE_FLASH_ATTENTION: "true"
+      USE_FLASH_ATTENTION: "false"   # flash_attn is NOT in the image; Gradio mode hard-crashes if true
       LOCAL_FILES_ONLY: "false"        # auto-download CustomVoice (~7GB) into /cache on first boot
       MODEL_CACHE_DIR: "/cache"
       HF_HOME: "/cache"
