@@ -1,0 +1,42 @@
+manifestVersion: 1
+id: csikosjanos-chatterbox-tts
+name: Chatterbox TTS
+tagline: Self-hosted text-to-speech with voice cloning (Resemble AI Chatterbox)
+icon: https://raw.githubusercontent.com/github/explore/main/topics/text-to-speech/text-to-speech.png
+category: ai
+version: "1.0.0"
+port: 8004
+description: >-
+  Chatterbox is Resemble AI's open-source (MIT) state-of-the-art text-to-speech
+  model. This app runs the community `devnen/Chatterbox-TTS-Server`, which wraps
+  the model in a friendly Web UI plus an OpenAI-compatible API — so you can
+  generate speech from the browser or from your own apps.
+
+
+  Features: predefined voices, zero-shot voice cloning from a few seconds of
+  reference audio, emotion/exaggeration control, and audiobook-scale text
+  processing. Output as WAV / MP3 / Opus.
+
+
+  This build uses the NVIDIA (CUDA 12.1) image and requests the GPU. On first
+  start it downloads the model from Hugging Face (~2 GB+), so the initial boot
+  is slow. The model cache and your voices/outputs persist in the app's data
+  directory.
+
+
+  NOTE: GPU passthrough for Umbrel apps is not officially documented; this
+  compose uses the standard Docker Compose device reservation. If the GPU isn't
+  picked up on your box, switch the image tag to `main-cpu` and remove the
+  `deploy:` block (much slower, no GPU needed).
+developer: Resemble AI (model), devnen (server), packaged by csikosjanos
+website: https://github.com/devnen/Chatterbox-TTS-Server
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/devnen/Chatterbox-TTS-Server
+support: https://github.com/devnen/Chatterbox-TTS-Server/issues
+gallery: []
+releaseNotes: ""
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

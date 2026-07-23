@@ -1,0 +1,33 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-chatterbox-tts_server_1
+      APP_PORT: 8004
+      PROXY_AUTH_ADD: "false"
+
+  server:
+    image: ghcr.io/devnen/chatterbox-tts-server:main-nvidia
+    restart: on-failure
+    stop_grace_period: 1m
+    environment:
+      # GPU (NVIDIA Container Toolkit must be present on the host — it is, Ollama uses it)
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      # Faster model downloads + optional bf16 speedup
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      TTS_BF16: auto
+    volumes:
+      - ${APP_DATA_DIR}/hf_cache:/app/hf_cache               # model cache (~2GB+) — keep, avoids re-download
+      - ${APP_DATA_DIR}/voices:/app/voices                   # predefined / cloned voices
+      - ${APP_DATA_DIR}/reference_audio:/app/reference_audio # voice-cloning inputs
+      - ${APP_DATA_DIR}/outputs:/app/outputs                 # generated audio
+      - ${APP_DATA_DIR}/logs:/app/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
