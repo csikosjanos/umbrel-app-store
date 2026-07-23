@@ -1,0 +1,36 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-qwen3-tts_server_1
+      APP_PORT: 7860
+      PROXY_AUTH_ADD: "false"
+
+  server:
+    image: ghcr.io/csikosjanos/qwen3-tts-api:cu124
+    restart: on-failure
+    stop_grace_period: 1m
+    environment:
+      # --- Gradio Web UI mode (this app) ---
+      ENABLE_GRADIO: "true"
+      GRADIO_PORT: "7860"
+      GRADIO_SERVER_NAME: "0.0.0.0"   # bind to all interfaces so app_proxy can reach it
+      # --- model / device ---
+      MODEL_NAME: "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"   # only model that fits 8GB alone
+      DEVICE: "cuda:0"
+      DTYPE: "bfloat16"
+      USE_FLASH_ATTENTION: "true"
+      LOCAL_FILES_ONLY: "false"        # auto-download CustomVoice (~7GB) into /cache on first boot
+      MODEL_CACHE_DIR: "/cache"
+      HF_HOME: "/cache"
+    volumes:
+      - ${APP_DATA_DIR}/cache:/cache     # HF model cache (~7GB) — keep, avoids re-download
+      - ${APP_DATA_DIR}/voices:/voices   # user voice library
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

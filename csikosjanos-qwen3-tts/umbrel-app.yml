@@ -1,0 +1,40 @@
+manifestVersion: 1
+id: csikosjanos-qwen3-tts
+name: Qwen3-TTS
+tagline: Alibaba Qwen3-TTS text-to-speech (Gradio Web UI)
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-qwen3-tts/icon.png
+category: ai
+version: "1.0.0"
+port: 7860
+description: >-
+  Qwen3-TTS is Alibaba Cloud's open-source text-to-speech model. This app runs
+  the community `cornball-ai/qwen3-tts-api` server in its **Gradio Web UI** mode
+  — the official Qwen3-TTS demo in your browser.
+
+
+  It uses the 1.7B **CustomVoice** model (9 built-in speakers). On first start it
+  downloads the model from Hugging Face (~7 GB) into the app's cache, so the
+  initial boot is slow.
+
+
+  IMPORTANT — VRAM: the model needs ~8 GB of VRAM, which is your whole card, so
+  it CANNOT run at the same time as Ollama (or any other GPU app). Stop the
+  other GPU app first, then start this one. Voice cloning / voice design need
+  even more VRAM (12–16 GB) and are not usable on an 8 GB card — this app is
+  built for standard TTS with the built-in speakers.
+
+
+  NOTE: This is the Web UI variant. An OpenAI-compatible API variant can be
+  added as a separate app (they can't share the GPU simultaneously).
+developer: Alibaba Qwen (model), cornball-ai (server), packaged by csikosjanos
+website: https://github.com/QwenLM/Qwen3-TTS
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/cornball-ai/qwen3-tts-api
+support: https://github.com/cornball-ai/qwen3-tts-api/issues
+gallery: []
+releaseNotes: ""
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
