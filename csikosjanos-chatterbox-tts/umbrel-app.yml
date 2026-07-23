@@ -2,7 +2,7 @@ manifestVersion: 1
 id: csikosjanos-chatterbox-tts
 name: Chatterbox TTS
 tagline: Self-hosted text-to-speech with voice cloning (Resemble AI Chatterbox)
-icon: https://raw.githubusercontent.com/github/explore/main/topics/text-to-speech/text-to-speech.png
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-chatterbox-tts/icon.png
 category: ai
 version: "1.0.0"
 port: 8004
