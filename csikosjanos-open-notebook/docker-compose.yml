@@ -30,8 +30,12 @@ services:
 
   open_notebook:
     image: lfnovo/open_notebook:v1-latest
+    # NOTE: do NOT publish 8502 here — Umbrel's app_proxy already binds host
+    # 8502 (manifest `port`) and proxies to this container over the internal
+    # network. Publishing it again collides ("port is already allocated") and
+    # the container stays in Created. app_proxy only proxies that one port, so
+    # the REST API (5055) is published directly for LAN/tailnet access.
     ports:
-      - "8502:8502"
       - "5055:5055"
     environment:
       # Injected post-install via app-data/.env (never committed). Must be
