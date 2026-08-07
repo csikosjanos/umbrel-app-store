@@ -38,6 +38,15 @@ services:
     ports:
       - "5055:5055"
     environment:
+      # REQUIRED for the Web UI to reach its API. open-notebook's browser
+      # frontend calls the API directly, so it must know the app's PUBLIC URL
+      # (Next.js forwards /api/* to the backend internally — one port only, no
+      # /api suffix here). Left unset the notebooks page shows "Unable to
+      # Connect to API Server". Set API_URL in app-data/.env to the URL you
+      # actually open the app on, e.g. your Tailscale-serve URL:
+      #   API_URL=https://<host>.ts.net:18502
+      # See this app's README for the exact steps.
+      - API_URL=${API_URL:-}
       # Injected post-install via app-data/.env (never committed). Must be
       # stable — rotating it orphans provider API keys stored in the UI.
       - OPEN_NOTEBOOK_ENCRYPTION_KEY=${OPEN_NOTEBOOK_ENCRYPTION_KEY:-change-me-to-a-secret-string}

@@ -37,8 +37,12 @@ On the box:
 openssl rand -hex 32   # -> use as OPEN_NOTEBOOK_ENCRYPTION_KEY
 openssl rand -hex 16   # -> use as SURREAL_PASSWORD
 
-# 2. Write them to the app-data env file (created by umbreld on install)
+# 2. Write them to the app-data env file (created by umbreld on install).
+#    API_URL is REQUIRED — set it to the URL you actually open the app on
+#    (no /api suffix). If you expose it via Tailscale Serve on port+10000,
+#    that's https://<host>.ts.net:18502 .
 cat >> ~/umbrel/app-data/csikosjanos-open-notebook/.env <<'EOF'
+API_URL=https://<host>.ts.net:18502
 OPEN_NOTEBOOK_ENCRYPTION_KEY=<paste 32-byte hex>
 SURREAL_USER=onbadmin
 SURREAL_PASSWORD=<paste 16-byte hex>
@@ -46,6 +50,12 @@ EOF
 
 # 3. Restart the app from the Umbrel UI (or: umbreld client apps.restart ...)
 ```
+
+> ⚠️ **`API_URL` is not optional.** open-notebook's browser frontend calls the
+> API directly, so it must know the app's public address. Left unset, the
+> notebooks page shows **"Unable to Connect to API Server"**. Use the exact URL
+> you open in the browser (scheme + host + port, **no** `/api`). Next.js
+> forwards `/api/*` to the backend internally, so only this one URL is needed.
 
 > ⚠️ **Do not change `OPEN_NOTEBOOK_ENCRYPTION_KEY` after first use.** It
 > encrypts the provider API keys you save in the UI; rotating it makes those
@@ -60,6 +70,7 @@ EOF
 
 | Variable | Purpose | Secret? |
 |---|---|---|
+| `API_URL` | **Required.** Public URL the browser reaches the app on (no `/api`). | no |
 | `OPEN_NOTEBOOK_ENCRYPTION_KEY` | Encrypts provider API keys stored in the UI. Must be stable. | ✅ yes |
 | `SURREAL_USER` | SurrealDB username | ✅ yes |
 | `SURREAL_PASSWORD` | SurrealDB password | ✅ yes |

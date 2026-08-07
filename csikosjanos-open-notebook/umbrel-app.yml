@@ -4,7 +4,7 @@ name: Open Notebook
 tagline: Self-hosted, privacy-first NotebookLM alternative for AI research
 icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-open-notebook/icon.png
 category: ai
-version: "1.0.1"
+version: "1.0.2"
 port: 8502
 description: >-
   Open Notebook is an open-source (self-hostable) alternative to Google's
@@ -36,9 +36,11 @@ repo: https://github.com/lfnovo/open-notebook
 support: https://github.com/lfnovo/open-notebook/issues
 gallery: []
 releaseNotes: >-
-  1.0.1 — Fix install failure: the app container was stuck in "Created" because
-  it published host port 8502, which Umbrel's app_proxy already binds. Removed
-  that publish (the Web UI is served via app_proxy); the REST API stays on 5055.
+  1.0.2 — Fix "Unable to Connect to API Server" on the notebooks page. The
+  browser frontend needs the app's public URL: added the API_URL env var (set
+  it in app-data/.env to the URL you open the app on, no /api suffix). See the
+  README. 1.0.1 — Fixed an install crash from a port-8502 conflict with the
+  Umbrel app_proxy.
 dependencies: []
 path: ""
 defaultUsername: ""
