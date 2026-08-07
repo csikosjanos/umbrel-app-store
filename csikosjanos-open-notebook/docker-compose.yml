@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-open-notebook_open_notebook_1
+      APP_PORT: 8502
+      PROXY_AUTH_ADD: "false"
+
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    command:
+      - start
+      - --log
+      - info
+      - --user
+      - ${SURREAL_USER:-root}
+      - --pass
+      - ${SURREAL_PASSWORD:-root}
+      - rocksdb:/mydata/mydatabase.db
+    user: root
+    # localhost-only: DB is internal, never exposed on the tailnet/LAN
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ${APP_DATA_DIR}/data/surreal_data:/mydata
+    environment:
+      - SURREAL_EXPERIMENTAL_GRAPHQL=true
+    restart: on-failure
+
+  open_notebook:
+    image: lfnovo/open_notebook:v1-latest
+    ports:
+      - "8502:8502"
+      - "5055:5055"
+    environment:
+      # Injected post-install via app-data/.env (never committed). Must be
+      # stable — rotating it orphans provider API keys stored in the UI.
+      - OPEN_NOTEBOOK_ENCRYPTION_KEY=${OPEN_NOTEBOOK_ENCRYPTION_KEY:-change-me-to-a-secret-string}
+      - SURREAL_URL=ws://surrealdb:8000/rpc
+      - SURREAL_USER=${SURREAL_USER:-root}
+      - SURREAL_PASSWORD=${SURREAL_PASSWORD:-root}
+      - SURREAL_NAMESPACE=open_notebook
+      - SURREAL_DATABASE=open_notebook
+    volumes:
+      - ${APP_DATA_DIR}/data/notebook_data:/app/data
+    depends_on:
+      - surrealdb
+    restart: on-failure

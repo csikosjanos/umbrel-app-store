@@ -1,0 +1,42 @@
+manifestVersion: 1
+id: csikosjanos-open-notebook
+name: Open Notebook
+tagline: Self-hosted, privacy-first NotebookLM alternative for AI research
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-open-notebook/icon.png
+category: ai
+version: "1.0.0"
+port: 8502
+description: >-
+  Open Notebook is an open-source (self-hostable) alternative to Google's
+  NotebookLM. Organise sources, notes and research in notebooks, then generate
+  AI-powered summaries, insights and podcasts — while your data stays on your
+  own hardware.
+
+  It supports 18+ model providers for chat, embeddings and speech: Anthropic,
+  OpenAI, Google GenAI, Groq, Mistral, DeepSeek, xAI, Cohere, ElevenLabs,
+  Deepgram and — importantly for this box — Ollama. Point it at your local
+  GPU Ollama to run fully offline, or bring cloud API keys for the frontier
+  models.
+
+  Ships two containers: the Open Notebook app (Web UI on 8502, REST API on
+  5055) and a SurrealDB database (RocksDB backend, bound to localhost only).
+  Both the database and your notebook data persist in the app's data directory.
+
+  IMPORTANT — set your secrets after install. Before first use, add an
+  OPEN_NOTEBOOK_ENCRYPTION_KEY (used to encrypt the provider API keys you enter
+  in the UI) and SurrealDB credentials to
+  ~/umbrel/app-data/csikosjanos-open-notebook/.env, then restart the app.
+  Do NOT change the encryption key later — rotating it makes previously stored
+  provider keys unreadable. See this app's README for the exact steps.
+developer: Luis Novo (lfnovo)
+website: https://github.com/lfnovo/open-notebook
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/lfnovo/open-notebook
+support: https://github.com/lfnovo/open-notebook/issues
+gallery: []
+releaseNotes: ""
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
