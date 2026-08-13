@@ -4,7 +4,7 @@ services:
   app_proxy:
     environment:
       APP_HOST: csikosjanos-qwen3-tts_server_1
-      APP_PORT: 7860
+      APP_PORT: 4123
       PROXY_AUTH_ADD: "false"
 
   server:
@@ -12,21 +12,29 @@ services:
     restart: on-failure
     stop_grace_period: 1m
     environment:
-      # --- Gradio Web UI mode (this app) ---
-      ENABLE_GRADIO: "true"
-      GRADIO_PORT: "7860"
-      GRADIO_SERVER_NAME: "0.0.0.0"   # bind to all interfaces so app_proxy can reach it
+      # --- API-only mode (FastAPI/uvicorn, OpenAI-compatible) ---
+      ENABLE_GRADIO: "false"
+      PORT: "4123"                    # uvicorn/API port (image default); app_proxy -> here
+      HOST: "0.0.0.0"                 # bind all interfaces so app_proxy can reach it
       # --- model / device ---
       MODEL_NAME: "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"   # only model that fits 8GB alone
       DEVICE: "cuda:0"
       DTYPE: "bfloat16"
-      USE_FLASH_ATTENTION: "false"   # flash_attn is NOT in the image; Gradio mode hard-crashes if true
-      LOCAL_FILES_ONLY: "false"        # auto-download CustomVoice (~7GB) into /cache on first boot
+      USE_FLASH_ATTENTION: "false"    # flash_attn is NOT in the image; leave false
+      LOCAL_FILES_ONLY: "false"       # auto-download CustomVoice (~7GB) into /cache on first boot
       MODEL_CACHE_DIR: "/cache"
       HF_HOME: "/cache"
     volumes:
       - ${APP_DATA_DIR}/cache:/cache     # HF model cache (~7GB) — keep, avoids re-download
       - ${APP_DATA_DIR}/voices:/voices   # user voice library
+    healthcheck:
+      # API mode: uvicorn serves /health on 4123. In Gradio mode nothing listened
+      # on 4123 so the image's built-in probe kept the container 'unhealthy'.
+      test: ["CMD", "curl", "-f", "http://localhost:4123/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10m
+      retries: 5
     deploy:
       resources:
         reservations:
