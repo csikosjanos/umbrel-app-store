@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-promptfoo_server_1
+      APP_PORT: 3000
+      PROXY_AUTH_ADD: "false"
+
+  server:
+    image: ghcr.io/promptfoo/promptfoo:0.122.2
+    # NOTE: do NOT publish 3000 here. Umbrel's app_proxy already binds host
+    # 8010 (manifest `port`) and proxies to this container's 3000 over the
+    # internal network. Publishing it again collides ("port is already
+    # allocated") and the container stays in Created.
+    environment:
+      # Local models: reach the Ollama app over Umbrel's internal Docker
+      # network. ollama_ollama_1 is the hostname documented by the official
+      # Ollama app. No API key is needed for these.
+      - OLLAMA_BASE_URL=http://ollama_ollama_1:11434
+      # Self-hosted instance — don't phone home, don't nag about updates
+      # (the image tag is pinned; updates come through the app store).
+      - PROMPTFOO_DISABLE_TELEMETRY=1
+      - PROMPTFOO_DISABLE_UPDATE=1
+      # Optional cloud providers, for benchmarking a local model against a
+      # frontier one. Injected post-install via app-data/.env (never
+      # committed) — unset is fine, local-only evals do not need them.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      # SQLite eval history + config. The image runs as the non-root
+      # `promptfoo` user, so this path must be writable by it.
+      - ${APP_DATA_DIR}/data:/home/promptfoo/.promptfoo
+    restart: on-failure

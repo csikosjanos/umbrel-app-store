@@ -1,0 +1,53 @@
+manifestVersion: 1
+id: csikosjanos-promptfoo
+name: Promptfoo
+tagline: Test, compare and red-team your local Ollama models
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-promptfoo/icon.png
+category: ai
+version: "0.122.2"
+port: 8010
+description: >-
+  Promptfoo is an open-source evaluation framework for LLM prompts, models and
+  agents. Define test cases once, then run them across many models and prompts
+  at the same time and read the results as a side-by-side matrix instead of
+  eyeballing one answer at a time.
+
+  Assertions are the point. A test can require that the output contains a
+  string, matches a regex, parses as valid JSON against a schema, calls the
+  right tool with the right arguments, stays under a latency or cost budget, or
+  passes an LLM-as-judge rubric. Runs are repeatable, so you can tell whether a
+  new model or a reworded prompt actually improved anything.
+
+  This app is wired to the Ollama app on this box over the internal Docker
+  network, so your prompts and outputs never leave your hardware and no API key
+  is needed to evaluate local models. Add cloud provider keys later if you want
+  to benchmark a local model against a frontier one.
+
+  Two ways to use it. Run evaluations directly in the browser with the built-in
+  eval creator, or run them from the promptfoo CLI on your laptop and push the
+  results here with `promptfoo share` — this app then acts as your permanent,
+  self-hosted results history. Results are stored in a SQLite database in the
+  app's data directory.
+
+  Also includes a red-teaming mode that probes models with jailbreak, prompt
+  injection and harmful-content attacks, useful before you expose a local model
+  to anything outside your own network.
+developer: promptfoo
+website: https://www.promptfoo.dev
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/promptfoo/promptfoo
+support: https://github.com/promptfoo/promptfoo/issues
+gallery: []
+releaseNotes: >-
+  First release. Promptfoo 0.122.2, pinned. Pre-wired to the Ollama app on this
+  box (OLLAMA_BASE_URL=http://ollama_ollama_1:11434) so local models work with
+  no configuration. Telemetry and update checks are disabled by default. To
+  benchmark against cloud models, add provider API keys to
+  ~/umbrel/app-data/csikosjanos-promptfoo/.env and restart the app — see this
+  app's README.
+dependencies:
+  - ollama
+path: ""
+defaultUsername: ""
+defaultPassword: ""
