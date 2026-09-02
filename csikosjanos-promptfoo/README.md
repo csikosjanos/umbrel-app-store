@@ -7,6 +7,7 @@ Open-source evaluation framework for LLM prompts, models and agents. Pre-wired t
 - **Port:** `8010` → container `3000` via Umbrel's `app_proxy`
 - **Data:** `~/umbrel/app-data/csikosjanos-promptfoo/data` → `/home/promptfoo/.promptfoo` (SQLite eval history)
 - **Depends on:** the official **Ollama** app
+- **App version:** store-versioned (`1.0.1`); the pinned upstream release is promptfoo `0.122.2`
 
 ## What it is for
 
@@ -103,4 +104,5 @@ Then reach it at `https://<host>.ts.net:18010`.
 - **No authentication.** `PROXY_AUTH_ADD` is `false` so the CLI and browser can both reach the API. Anyone who can reach port `8010` can read your eval history. Keep it on your LAN or tailnet.
 - **Red teaming.** Promptfoo can probe models with jailbreak, prompt-injection and harmful-content attacks. Some of that functionality calls promptfoo's hosted service; purely local evaluation does not.
 - **Not a GPU app.** Inference happens in the Ollama container. Promptfoo only orchestrates and scores.
+- **Data directory ownership.** umbreld creates the app's data directory as `root`, but the image runs as uid `100`. A one-time `init_perms` service chowns it before the server starts; without it the server crash-loops on `SQLITE_CANTOPEN` (error 14).
 - **Eval speed is Ollama's speed.** A large matrix against a 35B model takes a while — `OLLAMA_NUM_PARALLEL` on the Ollama app governs concurrency.

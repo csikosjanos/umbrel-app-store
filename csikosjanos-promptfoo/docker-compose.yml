@@ -7,12 +7,32 @@ services:
       APP_PORT: 3000
       PROXY_AUTH_ADD: "false"
 
+  # One-time root init. umbreld creates ${APP_DATA_DIR}/data owned by root:root,
+  # but the promptfoo image runs as the non-root user promptfoo (uid 100,
+  # gid 101). Without this the server cannot create its SQLite database and
+  # crash-loops with:
+  #   Database migration failed: ConnectionFailed("Unable to open connection to
+  #   local database /home/promptfoo/.promptfoo/promptfoo.db: 14")
+  # (SQLite error 14 = SQLITE_CANTOPEN.) This chowns the dir once and exits.
+  # It reuses the already-pulled promptfoo image, so there is no extra download,
+  # and it is the only place root is used — the server itself stays non-root.
+  init_perms:
+    image: ghcr.io/promptfoo/promptfoo:0.122.2
+    user: "0:0"
+    entrypoint: ["sh", "-c", "chown -R 100:101 /home/promptfoo/.promptfoo"]
+    restart: on-failure
+    volumes:
+      - ${APP_DATA_DIR}/data:/home/promptfoo/.promptfoo
+
   server:
     image: ghcr.io/promptfoo/promptfoo:0.122.2
     # NOTE: do NOT publish 3000 here. Umbrel's app_proxy already binds host
     # 8010 (manifest `port`) and proxies to this container's 3000 over the
     # internal network. Publishing it again collides ("port is already
     # allocated") and the container stays in Created.
+    depends_on:
+      init_perms:
+        condition: service_completed_successfully
     environment:
       # Local models: reach the Ollama app over Umbrel's internal Docker
       # network. ollama_ollama_1 is the hostname documented by the official
@@ -28,7 +48,6 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     volumes:
-      # SQLite eval history + config. The image runs as the non-root
-      # `promptfoo` user, so this path must be writable by it.
+      # SQLite eval history + config, owned by uid 100 via init_perms above.
       - ${APP_DATA_DIR}/data:/home/promptfoo/.promptfoo
     restart: on-failure

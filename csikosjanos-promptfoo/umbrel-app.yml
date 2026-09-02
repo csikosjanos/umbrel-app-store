@@ -4,7 +4,7 @@ name: Promptfoo
 tagline: Test, compare and red-team your local Ollama models
 icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-promptfoo/icon.png
 category: ai
-version: "0.122.2"
+version: "1.0.1"
 port: 8010
 description: >-
   Promptfoo is an open-source evaluation framework for LLM prompts, models and
@@ -40,9 +40,15 @@ repo: https://github.com/promptfoo/promptfoo
 support: https://github.com/promptfoo/promptfoo/issues
 gallery: []
 releaseNotes: >-
-  First release. Promptfoo 0.122.2, pinned. Pre-wired to the Ollama app on this
-  box (OLLAMA_BASE_URL=http://ollama_ollama_1:11434) so local models work with
-  no configuration. Telemetry and update checks are disabled by default. To
+  1.0.1 — Fixes a crash-loop on first install. umbreld creates the app's data
+  directory owned by root, but the promptfoo image runs as a non-root user
+  (uid 100), so the server could not create its SQLite database and failed with
+  "Unable to open connection to local database ... 14". Added a one-time
+  init_perms service that chowns the directory before the server starts, using
+  the same already-pulled image. 1.0.0 — First release. Promptfoo 0.122.2,
+  pinned. Pre-wired to the Ollama app on this box
+  (OLLAMA_BASE_URL=http://ollama_ollama_1:11434) so local models work with no
+  configuration. Telemetry and update checks are disabled by default. To
   benchmark against cloud models, add provider API keys to
   ~/umbrel/app-data/csikosjanos-promptfoo/.env and restart the app — see this
   app's README.
