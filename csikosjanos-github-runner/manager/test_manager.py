@@ -74,6 +74,7 @@ import manager  # noqa: E402  (env must be set first)
 LEGACY_TEXT = open(os.environ["MANAGER_LEGACY_ENV"]).read()
 manager.Store().migrate()  # what the one-shot `migrate` service does
 manager.Store().migrate()  # every later app start: must not import again
+manager.prepare_runners_root()  # what main() does before starting runners
 M = manager.Manager()
 manager.Handler.manager = M
 ui = ThreadingHTTPServer(("127.0.0.1", 0), manager.Handler)
@@ -215,6 +216,13 @@ class T(unittest.TestCase):
         finally:
             manager.allowed_peers = real
         self.assertEqual(call("GET", "/api/runners")[0], 200)
+
+    def test_99_runner_dirs_readable_up_the_hierarchy(self):
+        # Real Runner.Listener needs read+execute on every parent directory.
+        root = os.environ["RUNNERS_DIR"]
+        self.assertEqual(stat.S_IMODE(os.stat(root).st_mode) & 0o005, 0o005)
+        own = os.path.join(root, "1")
+        self.assertEqual(stat.S_IMODE(os.stat(own).st_mode), 0o700)
 
     def test_8_index_served(self):
         code, body = call("GET", "/", header=False)
