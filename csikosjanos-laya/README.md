@@ -60,6 +60,10 @@ CLIProxyAPI forwards `/v1/systemone` unchanged to `<base URL>/v1/systemone`
 
 ## Settings (`~/umbrel/app-data/csikosjanos-laya/.env`, then restart the app)
 
+umbreld passes no env-file to compose; the shipped `exports.sh` (sourced by
+umbreld) exports this `.env` so the overrides below take effect. Without a
+`.env` the defaults apply.
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `LAYA_DEVICE` | `cuda` | `cpu` keeps it off the GPU entirely |
