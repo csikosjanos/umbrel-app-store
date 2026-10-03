@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-ollama-model-manager_server_1
+      APP_PORT: 8080
+      # Umbrel login stays ON (PROXY_AUTH_ADD left at its default). The app
+      # also has its own admin login.
+
+  server:
+    # Upstream release 2026.10.01.1 (commit b8355b880e4e529c179b00f6c1255116d5d2acdc),
+    # pinned by multi-arch index digest. `gh attestation verify` confirms the
+    # digest was built from that commit by upstream's ci.yml.
+    image: ghcr.io/mophead64/ollama-model-manager:2026.10.01.1@sha256:0bf7a43093a92ad08b7079dc1a57e94f8429363313478c5a52cbbc3945692fd7
+    # umbrelOS installs the committed data/ dir owned by 1000:1000. The image
+    # is distroless (no shell to chown), and the static Go binary does not
+    # need its baked-in nonroot user, so run as 1000:1000 to own /data.
+    user: "1000:1000"
+    restart: on-failure
+    # NOTE: do NOT publish 8080 here. Umbrel's app_proxy already binds host
+    # 11435 (manifest `port`) and proxies to this container's 8080.
+    environment:
+      # The Ollama app over Umbrel's internal Docker network. APP_OLLAMA_URL
+      # is exported by the Ollama app's exports.sh (sourced because it is a
+      # dependency); the fallback is the hostname its manifest documents.
+      OLLAMA_HOST: ${APP_OLLAMA_URL:-http://ollama_ollama_1:11434}
+      PORT: "8080"
+      DB_PATH: /data/omm.db
+      # Usage history is bucketed by day in this zone. Override in
+      # app-data/.env if wanted.
+      TZ: ${TZ:-Etc/UTC}
+      # Optional Hugging Face read token, for browsing private repos. Set in
+      # app-data/.env, never committed. Unset is fine for public models.
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # SQLite db: admin account, download queue, usage history, tests,
+      # blacklist.
+      - ${APP_DATA_DIR}/data:/data
+    # Deliberately not given: GPU access, docker.sock, or a mount of the
+    # Ollama app's models folder. Model pulls/deletes and per-model VRAM all
+    # go through the Ollama API (/api/pull, /api/delete, /api/ps). Without
+    # them only the System page's live GPU graph, Discover's "fits in VRAM"
+    # check and the free-disk-space tile are missing.
