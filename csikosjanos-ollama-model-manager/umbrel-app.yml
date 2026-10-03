@@ -6,7 +6,7 @@ name: Ollama Model Manager
 tagline: See, load, unload, download and clean up the models in your Ollama app
 icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-ollama-model-manager/icon.png
 category: ai
-version: "1.0.0"
+version: "1.0.1"
 port: 11435
 description: >-
   A web UI for managing the models of the Ollama app on this box, instead of
@@ -42,6 +42,9 @@ repo: https://github.com/mophead64/ollama-model-manager
 support: https://github.com/mophead64/ollama-model-manager/issues
 gallery: []
 releaseNotes: >-
+  1.0.1 — GPU access (permissions: GPU) so the app can read the GPU's VRAM
+  with nvidia-smi: correct "fits in VRAM" marks on Discover and the live
+  GPU graph on the System page. Without it every model showed as not fitting.
   1.0.0 — First release. Ollama Model Manager 2026.10.01.1, image pinned by
   digest (provenance attestation verified against upstream commit b8355b8).
   Talks to the Ollama app only through its API over Umbrel's internal
@@ -49,6 +52,8 @@ releaseNotes: >-
   Umbrel login stays on, on top of the app's own login.
 dependencies:
   - ollama
+permissions:
+  - GPU
 path: ""
 defaultUsername: ""
 defaultPassword: ""
