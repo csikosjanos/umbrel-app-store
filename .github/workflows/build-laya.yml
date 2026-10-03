@@ -41,7 +41,10 @@ on:
         description: "PyTorch version available on that index"
         required: true
         default: "2.14.0"
+  # Only main publishes images; feature branches (incl. merges of main into
+  # them) must not rebuild and overwrite the released tag.
   push:
+    branches: [main]
     paths:
       - .github/workflows/build-laya.yml
 
