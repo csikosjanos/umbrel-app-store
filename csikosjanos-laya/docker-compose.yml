@@ -1,0 +1,85 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-laya_server_1
+      APP_PORT: 8000
+      # Laya has its own bearer auth (LAYA_API_KEY below) and API clients cannot
+      # do Umbrel's login, so Umbrel auth stays off.
+      PROXY_AUTH_ADD: "false"
+
+  # One-time root init. umbreld creates ${APP_DATA_DIR}/cache owned by root,
+  # but the Laya image runs as uid/gid 10001. Reuses the server image (no
+  # extra pull), chowns once and exits; the server itself stays non-root.
+  init_perms:
+    image: ghcr.io/csikosjanos/laya:v0.3.24-cu126
+    user: "0:0"
+    entrypoint: ["sh", "-c", "chown -R 10001:10001 /home/laya/.cache/huggingface"]
+    restart: on-failure
+    volumes:
+      - ${APP_DATA_DIR}/cache:/home/laya/.cache/huggingface
+
+  server:
+    # Self-built from NandhaKishorM/laya v0.3.24 (pinned SHA) by
+    # .github/workflows/build-laya.yml: torch 2.14.0 cu126 (driver 550 OK via
+    # CUDA 12.x minor-version compatibility). Same image runs on CPU.
+    image: ghcr.io/csikosjanos/laya:v0.3.24-cu126
+    command: ["laya-serve"]
+    init: true
+    restart: on-failure
+    stop_grace_period: 30s
+    # NOTE: do NOT publish 8000. app_proxy binds host 8720 (manifest `port`).
+    # Other apps (CLIProxyAPI) reach it directly on the shared Umbrel network at
+    # http://csikosjanos-laya_server_1:8000/v1 without going through app_proxy.
+    depends_on:
+      init_perms:
+        condition: service_completed_successfully
+    environment:
+      LAYA_HOST: "0.0.0.0"
+      LAYA_PORT: "8000"
+      # Bearer key = Umbrel's per-install app password (deterministicPassword).
+      # /health liveness stays open; everything else needs the key.
+      LAYA_API_KEY: ${APP_PASSWORD}
+      # --- device / memory (override any of these in app-data/.env) ---
+      # cuda: ~1-1.5 GB VRAM per resident checkpoint (estimate). If the GPU is
+      # missing or full (Ollama holding it), Laya silently falls back to CPU,
+      # which /health reports. Set LAYA_DEVICE=cpu to never touch the GPU.
+      LAYA_DEVICE: ${LAYA_DEVICE:-cuda}
+      # Preload only the English checkpoint; multilingual / typed-decisions load
+      # on first use. At most 2 resident -> bounded RAM/VRAM.
+      LAYA_PRELOAD: ${LAYA_PRELOAD:-1}
+      LAYA_MODELS: ${LAYA_MODELS:-english}
+      LAYA_MAX_LOADED: ${LAYA_MAX_LOADED:-2}
+      # CPU threads: 4 of 14 cores, so a CI job on the runner keeps the rest.
+      LAYA_THREADS: ${LAYA_THREADS:-4}
+      OMP_NUM_THREADS: ${LAYA_THREADS:-4}
+      # Requests in flight at once; more get 503 (bounds buffered bodies).
+      LAYA_MAX_CONCURRENT: ${LAYA_MAX_CONCURRENT:-8}
+      # Strict TypeSafe Jev wire contract: only model/answers/usage, no
+      # Laya extras (routing, action, answer_confidence). Set 0 to see them.
+      LAYA_JEV_STRICT: ${LAYA_JEV_STRICT:-1}
+      # Weights pinned to the Hub commits reviewed upstream (laya/revisions.py).
+      LAYA_REVISION: ${LAYA_REVISION:-reviewed}
+      # Set HF_HUB_OFFLINE=1 after the first successful start to never phone home.
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+      LAYA_LOG_LEVEL: ${LAYA_LOG_LEVEL:-info}
+    volumes:
+      # Hugging Face cache: ~0.9 GB (english) / ~2.3 GB (all three checkpoints).
+      - ${APP_DATA_DIR}/cache:/home/laya/.cache/huggingface
+    # --- hard resource bounds (protect the production GitHub runner) ---
+    cpus: 4.0
+    mem_limit: 6g
+    memswap_limit: 6g
+    pids_limit: 512
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Laya binds only after preloading, so this goes green once the English
+      # checkpoint is downloaded (~0.9 GB) and built.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10m

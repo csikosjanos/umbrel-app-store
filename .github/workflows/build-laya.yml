@@ -1,0 +1,135 @@
+# Builds the container image for the csikosjanos-laya app.
+#
+# NandhaKishorM/laya publishes no image (its compose files build locally).
+# This checks out Laya at a pinned commit, builds its own Dockerfile unchanged
+# with CUDA build args, and pushes ghcr.io/csikosjanos/laya:<tag>-<torch index>.
+#
+# CUDA: the box's NVIDIA driver 550 supports CUDA <= 12.4. Laya's Dockerfile
+# installs PyTorch from pip (python:3.11-slim base, no nvidia/cuda base image,
+# so no NVIDIA_REQUIRE_CUDA check that fails with "unsatisfied condition").
+# The default here is torch 2.14.0 from the cu126 index; CUDA 12.x minor-version
+# compatibility lets a 12.6 runtime run on a 12.4 driver, and the wheels carry
+# native sm_86 (RTX 3070) kernels, so no PTX JIT is needed. If that ever fails
+# on the box, dispatch with torch_index=cu124 torch_version=2.6.0 (the newest
+# cu124 wheel). Upstream's own CUDA default (cu128) has no torch 2.14 wheel.
+#
+# Supply-chain hardening (same as build-cliproxyapi.yml):
+# - Upstream source pinned by commit SHA; the build fails if the tag moved.
+# - The third-party checkout does not persist GITHUB_TOKEN.
+# - All actions pinned to full commit SHAs.
+#
+# To bump: change DEFAULT_TAG + DEFAULT_SHA (that push rebuilds), then update
+# the image in csikosjanos-laya/docker-compose.yml and the app version.
+name: build-laya
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "NandhaKishorM/laya git tag (image tag prefix)"
+        required: true
+        default: "v0.3.24"
+      sha:
+        description: "Full commit SHA the tag must resolve to (required unless tag = DEFAULT_TAG)"
+        required: false
+        default: ""
+      torch_index:
+        description: "PyTorch wheel index (cu126 default; cu124 needs torch_version=2.6.0)"
+        required: true
+        default: "cu126"
+      torch_version:
+        description: "PyTorch version available on that index"
+        required: true
+        default: "2.14.0"
+  push:
+    paths:
+      - .github/workflows/build-laya.yml
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  UPSTREAM_REPO: NandhaKishorM/laya
+  DEFAULT_TAG: v0.3.24
+  DEFAULT_SHA: fa9a2a7070b1789912a49ae24603bbfb1a78b001
+  DEFAULT_TORCH_INDEX: cu126
+  DEFAULT_TORCH_VERSION: 2.14.0
+  IMAGE: ghcr.io/csikosjanos/laya
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag + pinned SHA + torch, verify the tag still points at the SHA
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_TORCH_INDEX: ${{ inputs.torch_index }}
+          INPUT_TORCH_VERSION: ${{ inputs.torch_version }}
+        run: |
+          tag="${INPUT_TAG:-$DEFAULT_TAG}"
+          sha="${INPUT_SHA}"
+          tidx="${INPUT_TORCH_INDEX:-$DEFAULT_TORCH_INDEX}"
+          tver="${INPUT_TORCH_VERSION:-$DEFAULT_TORCH_VERSION}"
+          [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad tag: $tag"; exit 1; }
+          # cu124 at most cu126: newer runtimes may need a newer driver than the box's 550.
+          [[ "$tidx" =~ ^(cpu|cu124|cu126)$ ]] || { echo "torch_index must be cpu, cu124 or cu126 (driver 550)"; exit 1; }
+          [[ "$tver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad torch_version: $tver"; exit 1; }
+          if [[ -z "$sha" ]]; then
+            [[ "$tag" == "$DEFAULT_TAG" ]] || { echo "tag $tag needs an explicit sha input"; exit 1; }
+            sha="$DEFAULT_SHA"
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "bad sha: $sha"; exit 1; }
+          remote=$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" \
+            "refs/tags/${tag}" "refs/tags/${tag}^{}" | sort -k2 | tail -n1 | cut -f1)
+          [[ "$remote" == "$sha" ]] || { echo "tag $tag resolves to '${remote}', expected $sha"; exit 1; }
+          {
+            echo "tag=$tag"
+            echo "sha=$sha"
+            echo "torch_index=$tidx"
+            echo "torch_version=$tver"
+          } >> "$GITHUB_OUTPUT"
+
+      # The CUDA torch wheels + nvidia libs make a multi-GB image; give the
+      # hosted runner room before building.
+      - name: Free disk space on the runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Check out upstream at the pinned commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ steps.tag.outputs.sha }}
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Upstream's Dockerfile runs docker/check_torch.py, which fails the build
+      # unless the installed wheel matches TORCH_INDEX.
+      - name: Build and push (linux/amd64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}-${{ steps.tag.outputs.torch_index }}
+          build-args: |
+            TORCH_INDEX=${{ steps.tag.outputs.torch_index }}
+            TORCH_VERSION=${{ steps.tag.outputs.torch_version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Laya ${{ steps.tag.outputs.tag }} (torch ${{ steps.tag.outputs.torch_version }} ${{ steps.tag.outputs.torch_index }}), built for the csikosjanos Umbrel app store
+            org.opencontainers.image.revision=${{ steps.tag.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
