@@ -8,18 +8,33 @@ services:
       # PROXY_AUTH_ADD is deliberately not set: the default (on) means the UI
       # needs an Umbrel login, which matters because it manages runner tokens.
 
+  # One-shot, a few seconds per app start: the only container that sees the
+  # 1.x app-data/.env (read-only). On the first 2.x start it imports
+  # ORG_NAME/ACCESS_TOKEN as runner #1 and records "migrated" in config.json;
+  # afterwards it only notes whether the old .env still exists (for a UI hint).
+  # Always exits 0, so a failed import can't block the runner service.
+  migrate:
+    image: ghcr.io/csikosjanos/github-runner-manager:2.0.0
+    command: ["python3", "/opt/manager/manager.py", "--migrate"]
+    restart: "no"
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+      - ${APP_DATA_DIR}:/legacy:ro
+    security_opt:
+      - no-new-privileges:true
+
   # One container runs the web UI and every runner (one process per runner,
   # each as its own unprivileged uid). No docker.sock. See README.
   runner:
     image: ghcr.io/csikosjanos/github-runner-manager:2.0.0
     restart: unless-stopped
-    # Give runners time to finish deregistering/stopping on app stop.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # Give runners time to stop cleanly on app stop.
     stop_grace_period: 1m
     volumes:
       # Runner config + tokens (secrets/<id>.pat, 0600, root only).
       - ${APP_DATA_DIR}/data:/data
-      # Read-only, only for the one-time import of the 1.x app-data/.env
-      # (ORG_NAME / ACCESS_TOKEN) as runner #1.
-      - ${APP_DATA_DIR}:/legacy:ro
     security_opt:
       - no-new-privileges:true

@@ -40,6 +40,7 @@
   .check input { width:auto; }
   .hint { color:var(--muted); font-size:12px; margin-top:2px; }
   .err { color:var(--bad); min-height:1.4em; margin-top:8px; }
+  .notice { border:1px solid var(--busy); border-radius:8px; padding:10px 14px; margin-bottom:12px; }
   .empty { color:var(--muted); text-align:center; padding:40px 0; }
 </style>
 </head>
@@ -49,6 +50,11 @@
     <h1>GitHub Runners</h1>
     <button class="primary" id="add">Add runner</button>
   </header>
+  <div class="notice" id="legacy" hidden>
+    The 1.x token file <code>app-data/csikosjanos-github-runner/.env</code> (and <code>exports.sh</code>) is still on the box,
+    so the token is stored twice. It is kept on purpose so you can roll back to 1.x. Once runner #1 shows
+    <b>idle</b> and has run a real job, delete both (see the app README).
+  </div>
   <div id="list"></div>
 </main>
 
@@ -215,6 +221,7 @@ $("dlg").addEventListener("close", () => { $("f-pat").value = ""; });
 $("cancel").addEventListener("click", () => $("dlg").close());
 $("add").addEventListener("click", () => edit(null));
 $("f-scope").addEventListener("change", syncScope);
+api("GET", "/api/info").then((i) => { $("legacy").hidden = !i.legacy_env_present; }).catch(() => {});
 refresh();
 setInterval(refresh, 4000);
 </script>

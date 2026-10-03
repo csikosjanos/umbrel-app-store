@@ -71,6 +71,9 @@ os.environ["GITHUB_API"] = "http://127.0.0.1:%d" % gh.server_port
 
 import manager  # noqa: E402  (env must be set first)
 
+LEGACY_TEXT = open(os.environ["MANAGER_LEGACY_ENV"]).read()
+manager.Store().migrate()  # what the one-shot `migrate` service does
+manager.Store().migrate()  # every later app start: must not import again
 M = manager.Manager()
 manager.Handler.manager = M
 ui = ThreadingHTTPServer(("127.0.0.1", 0), manager.Handler)
@@ -119,6 +122,13 @@ class T(unittest.TestCase):
         cfg = os.path.join(os.environ["MANAGER_DATA"], "config.json")
         self.assertNotIn(PAT, open(cfg).read())
         self.assertEqual(stat.S_IMODE(os.stat(cfg).st_mode), 0o600)
+
+    def test_1b_migration_is_one_shot_and_read_only(self):
+        self.assertEqual(len(M.store.runners), 1)
+        self.assertTrue(M.store.cfg["migrated"])
+        # .env untouched, so a downgrade to 1.x still finds its token.
+        self.assertEqual(open(os.environ["MANAGER_LEGACY_ENV"]).read(), LEGACY_TEXT)
+        self.assertEqual(json.loads(call("GET", "/api/info")[1]), {"legacy_env_present": True})
 
     def test_2_runs_and_reports_job(self):
         self.assertTrue(wait_for(lambda: runner("rozsa-umbrel")["status"] == "busy"))
@@ -194,6 +204,17 @@ class T(unittest.TestCase):
         self.assertIn("Bad credentials", r["error"])
         self.assertNotIn(BAD_PAT, json.dumps(r) + call("GET", "/api/runners/%d/logs" % rid)[1])
         call("DELETE", "/api/runners/%d" % rid)
+
+    def test_9_only_app_proxy_peers(self):
+        real = manager.allowed_peers
+        manager.allowed_peers = lambda: {"10.21.0.1"}  # e.g. the bridge gateway only
+        try:
+            for method, path in (("GET", "/api/runners"), ("GET", "/api/runners/1/logs"),
+                                 ("GET", "/"), ("POST", "/api/runners/1/restart")):
+                self.assertEqual(call(method, path)[0], 403, path)
+        finally:
+            manager.allowed_peers = real
+        self.assertEqual(call("GET", "/api/runners")[0], 200)
 
     def test_8_index_served(self):
         code, body = call("GET", "/", header=False)

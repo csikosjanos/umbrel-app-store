@@ -19,6 +19,7 @@ import pwd
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -35,6 +36,7 @@ RUNNERS = os.environ.get("RUNNERS_DIR", "/runners")
 GITHUB_API = os.environ.get("GITHUB_API", "https://api.github.com")
 GITHUB_URL = os.environ.get("GITHUB_URL", "https://github.com")
 PORT = int(os.environ.get("PORT", "8080"))
+APP_PROXY_HOST = os.environ.get("APP_PROXY_HOST", "csikosjanos-github-runner_app_proxy_1")
 UID_BASE = 20000
 AS_ROOT = os.geteuid() == 0
 
@@ -133,17 +135,31 @@ class Store:
         os.makedirs(SECRETS, exist_ok=True)
         os.chmod(DATA, 0o700)
         os.chmod(SECRETS, 0o700)
-        if not os.path.exists(CONFIG):
-            self.runners = []
-            self._migrate()
-            self.save()
-        with open(CONFIG) as f:
-            self.runners = json.load(f)["runners"]
+        self.cfg = {"runners": []}
+        if os.path.exists(CONFIG):
+            with open(CONFIG) as f:
+                self.cfg = json.load(f)
+        self.runners = self.cfg["runners"]
 
-    def _migrate(self):
-        """First start after upgrading from 1.x: import app-data/.env as runner #1."""
+    def migrate(self):
+        """Import the 1.x app-data/.env as runner #1, once.
+
+        Runs in the one-shot `migrate` service, the only container that can
+        see app-data/.env. The .env and exports.sh are only read, never
+        changed, so downgrading to 1.x keeps working.
+        """
+        self.cfg["legacy_env_present"] = os.path.exists(LEGACY_ENV)
+        if not self.cfg.get("migrated"):
+            self.cfg["migrated"] = True
+            self._import_env()
+        self.save()
+
+    def _import_env(self):
         env = read_env_file(LEGACY_ENV)
         if not (env.get("ORG_NAME") and env.get("ACCESS_TOKEN")):
+            log("migrate: no 1.x .env with ORG_NAME/ACCESS_TOKEN; nothing to import")
+            return
+        if self.runners:
             return
         # 1.x hard-coded everything but ORG_NAME/ACCESS_TOKEN in its compose
         # file; keep exactly those values so workflows see the same runner.
@@ -156,7 +172,7 @@ class Store:
         log("migrated legacy .env as runner 1 (%s)" % r["name"])
 
     def save(self):
-        write_private(CONFIG, json.dumps({"runners": self.runners}, indent=2))
+        write_private(CONFIG, json.dumps(self.cfg, indent=2))
 
     def get(self, rid):
         return next((r for r in self.runners if r["id"] == rid), None)
@@ -464,6 +480,44 @@ class Manager:
 
 # ---------------------------------------------------------------- HTTP
 
+def gateway_ips():
+    """Default-gateway IPs of this container's interfaces.
+
+    On umbrelOS 2.x the app_proxy is not a container: umbreld's in-process app
+    gateway on the host connects to this container's IP, so its requests
+    arrive from the Docker bridge gateway. Other app containers on
+    umbrel_main_network arrive from their own IPs and are refused.
+    """
+    ips = set()
+    try:
+        with open("/proc/net/route") as f:
+            for line in f.readlines()[1:]:
+                fields = line.split()
+                if fields[1] == "00000000":  # default route
+                    ips.add(socket.inet_ntoa(int(fields[2], 16).to_bytes(4, "little")))
+    except (OSError, IndexError, ValueError):
+        pass
+    return ips
+
+
+_peers = {"at": 0, "ips": set()}
+
+
+def allowed_peers():
+    """Loopback, the bridge gateway (umbreld) and, on older umbrelOS where
+    app_proxy is a sidecar container, that container. Cached for 30s."""
+    if time.time() - _peers["at"] > 30:
+        ips = {"127.0.0.1"} | gateway_ips()
+        # Escape hatch if the gateway ever connects from somewhere else.
+        ips |= {i.strip() for i in os.environ.get("EXTRA_ALLOWED_PEERS", "").split(",") if i.strip()}
+        try:
+            ips.add(socket.gethostbyname(APP_PROXY_HOST))
+        except OSError:
+            pass
+        _peers.update(at=time.time(), ips=ips)
+    return _peers["ips"]
+
+
 class Handler(BaseHTTPRequestHandler):
     manager = None
 
@@ -481,23 +535,39 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _peer_ok(self):
+        ip = self.client_address[0].removeprefix("::ffff:")
+        if ip in allowed_peers():
+            return True
+        _peers["at"] = 0  # re-resolve next time, in case an IP changed
+        if ip in allowed_peers():
+            return True
+        self._send(403, {"error": "only reachable through the Umbrel app proxy"})
+        return False
+
     def _route(self):
         parts = [p for p in self.path.split("?")[0].split("/") if p]
         rid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
         return parts, rid
 
     def do_GET(self):
+        if not self._peer_ok():
+            return
         parts, rid = self._route()
         if not parts:
             with open(os.path.join(HERE, "index.html"), "rb") as f:
                 return self._send(200, f.read(), "text/html; charset=utf-8")
         if parts == ["api", "runners"]:
             return self._send(200, self.manager.list())
+        if parts == ["api", "info"]:
+            return self._send(200, {"legacy_env_present": bool(self.manager.store.cfg.get("legacy_env_present"))})
         if len(parts) == 4 and parts[:2] == ["api", "runners"] and parts[3] == "logs" and rid in self.manager.procs:
             return self._send(200, {"lines": list(self.manager.procs[rid].logs)})
         self._send(404, {"error": "not found"})
 
     def _mutate(self, method):
+        if not self._peer_ok():
+            return
         # CSRF guard: a cross-site form/fetch cannot set this header without a
         # CORS preflight, which we never grant.
         if self.headers.get("X-Runner-UI") != "1":
@@ -534,6 +604,14 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     os.umask(0o077)
+    if sys.argv[1:] == ["--migrate"]:
+        # Never fail the app start over the import: the runner service
+        # depends on this exiting 0.
+        try:
+            Store().migrate()
+        except Exception as e:
+            log("migrate failed: %s" % e)
+        return 0
     os.makedirs(RUNNERS, exist_ok=True)
     os.chmod(RUNNERS, 0o711)  # runners can enter their own dir only
     Handler.manager = manager = Manager()
@@ -546,7 +624,14 @@ def main():
     signal.signal(signal.SIGTERM, bye)
     signal.signal(signal.SIGINT, bye)
     log("listening on :%d (%d runners)" % (PORT, len(manager.store.runners)))
-    server.serve_forever()
+    # The UI must never take the runners down: if serving dies, serve again.
+    while True:
+        try:
+            server.serve_forever()
+            break  # shutdown() was called
+        except Exception as e:
+            log("http server error, restarting: %s" % e)
+            time.sleep(1)
     manager.shutdown()
 
 

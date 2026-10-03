@@ -57,9 +57,18 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
-      - name: Smoke test (UI answers, API lists runners)
+      - name: Smoke test (migrate exits 0, host reaches UI, other containers get 403)
+        env:
+          TAG: ${{ steps.v.outputs.version }}
         run: |
-          docker run -d --name m -p 8080:8080 "$IMAGE:${{ steps.v.outputs.version }}"
+          docker run --rm "$IMAGE:$TAG" python3 /opt/manager/manager.py --migrate
+          docker run -d --name runner-manager-smoke -p 8080:8080 "$IMAGE:$TAG"
+          # From the host = via the bridge gateway, like umbreld's app gateway.
           for i in $(seq 30); do curl -fs localhost:8080/api/runners && break; sleep 1; done
           curl -fs localhost:8080/ | grep -q "GitHub Runners"
-          docker logs m
+          # From a sibling container = like another Umbrel app: must be refused.
+          ip="$(docker inspect -f '{{.NetworkSettings.IPAddress}}' runner-manager-smoke)"
+          code="$(docker run --rm curlimages/curl:8.10.1 -s -o /dev/null -w '%{http_code}' "http://$ip:8080/api/runners")"
+          echo "sibling container got HTTP $code"
+          [ "$code" = 403 ]
+          docker logs runner-manager-smoke

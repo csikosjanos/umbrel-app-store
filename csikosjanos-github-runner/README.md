@@ -54,11 +54,24 @@ jobs:
   directory (mode 0700), so a job can't read the tokens or another runner's
   credentials. Jobs have no sudo (`no-new-privileges`, not in sudoers).
 - The UI needs the Umbrel login (`PROXY_AUTH_ADD` left at its default, on).
-  Changes also need an `X-Runner-UI` request header, so other sites can't
+  The manager also refuses every request (GET included) that doesn't come from
+  the app gateway. On umbrelOS 2.x the gateway runs inside umbreld on the host
+  and connects to the container's IP, so its requests arrive from the Docker
+  bridge gateway. Other app containers on `umbrel_main_network` arrive from
+  their own IPs and get a 403. Allowed peers are 127.0.0.1, the container's
+  default-gateway IPs (from `/proc/net/route`), and, on older umbrelOS where
+  app_proxy is a container, `csikosjanos-github-runner_app_proxy_1`. The list
+  is re-resolved every 30 s, or right away when a request is refused.
+  Host-network apps, which are host-level already, still count as "the host".
+  If a future umbrelOS connects from another address, the UI returns 403 and
+  the runners keep running. Add `EXTRA_ALLOWED_PEERS: <ip>` to the `runner`
+  service's environment as a stopgap.
+- Changes also need an `X-Runner-UI` request header, so other sites can't
   submit forms to it in your browser.
-- Limitation: other app containers on Umbrel's internal Docker network can
-  reach the manager's port 8080 directly, without the Umbrel login. They still
-  can't read tokens, but they could add, change or remove runners.
+- The old 1.x `.env` is mounted only into the one-shot `migrate` container,
+  read-only, for a few seconds per app start. The long-running `runner`
+  container doesn't see it. Runner uids (20000+) can't read
+  `data/secrets/` (root, 0700/0600), and `.env` is 0600, owned by root/1000.
 
 ## Design: one container, N runner processes (no docker.sock)
 
@@ -85,19 +98,24 @@ same thing.
 1.x read `ORG_NAME` / `ACCESS_TOKEN` from `app-data/csikosjanos-github-runner/.env`,
 loaded into compose by an app-data `exports.sh`. umbreld's app-script doesn't
 pass an env file to `docker compose`, but it does source
-`${UMBREL_ROOT}/app-data/<app>/exports.sh` (still true in umbrelOS 2.0,
-`legacy-compat/app-script` `source_app`).
+`${UMBREL_ROOT}/app-data/<app>/exports.sh`. That is still true on umbrelOS 2.0
+(`legacy-compat/app-script`, `source_app`).
 
-On the first start of 2.x (no `data/config.json` yet), the manager reads that
-`.env` through a read-only mount and creates **runner #1** with the 1.x values:
-name `rozsa-umbrel`, org `ORG_NAME`, labels `self-hosted,linux,x64,umbrel`,
-group `default`, not ephemeral. It registers with `--replace`, so the existing
-GitHub registration is taken over and workflows keep working.
+On every app start the one-shot `migrate` service runs first. The first time
+(`"migrated"` not yet in `data/config.json`), it reads that `.env` read-only
+and creates **runner #1** with the 1.x values: name `rozsa-umbrel`, org
+`ORG_NAME`, labels `self-hosted,linux,x64,umbrel`, group `default`, not
+ephemeral. Then it sets `"migrated": true`, so the import never runs again. The
+runner registers with `--replace`, so it takes over the existing GitHub
+registration and workflows keep working. `migrate` always exits 0. A failed
+import leaves you with no runner #1 (add it in the UI, or roll back) but
+doesn't block the app.
 
 2.x doesn't use `exports.sh` or compose interpolation for secrets, so the store
-doesn't ship an `exports.sh`. An existing one on the box is left in place
-(updates don't delete it) and does no harm. After runner #1 shows `idle`, you
-can delete the old `.env` and `exports.sh` so the token isn't stored twice:
+doesn't ship an `exports.sh`. **The migration never changes or deletes `.env`
+or `exports.sh`.** They stay in place so a rollback to 1.x works. While `.env`
+exists, the UI shows a reminder that the token is stored twice. Once the
+post-upgrade checks pass and you no longer need a rollback, delete them:
 
 ```sh
 sudo rm /home/umbrel/umbrel/app-data/csikosjanos-github-runner/{.env,exports.sh}
@@ -105,11 +123,69 @@ sudo rm /home/umbrel/umbrel/app-data/csikosjanos-github-runner/{.env,exports.sh}
 
 A fresh install starts with no runners; add them in the UI.
 
+### Upgrade checks (the runner is production)
+
+Before upgrading:
+
+1. `gh api orgs/<ORG>/actions/runners --jq '.runners[] | {name,status,busy}'`
+   shows `rozsa-umbrel` as `online`.
+2. `sudo docker logs --tail 20 csikosjanos-github-runner_runner_1` ends with `Listening for Jobs`.
+3. No job is running on it (`busy: false`). The upgrade stops the runner and
+   would cancel a running job.
+
+After upgrading (Umbrel dashboard → Update):
+
+1. The app UI shows `rozsa-umbrel` as **idle**.
+2. The same `gh api` call shows it `online` (one runner, not a duplicate).
+3. `sudo docker logs csikosjanos-github-runner_runner_1` shows
+   `[runner 1] ... Listening for Jobs`.
+4. Run one real job, for example a `workflow_dispatch` workflow in an org repo:
+   ```yaml
+   on: workflow_dispatch
+   jobs:
+     smoke:
+       runs-on: [self-hosted, umbrel]
+       steps:
+         - uses: actions/checkout@v4
+         - run: uname -a && id && git --version
+   ```
+   The card shows `busy: smoke` and then goes back to idle. The job succeeds.
+   Jobs now run as an unprivileged user. If a real workflow needs `sudo`,
+   that's a reason to roll back.
+
+### Rollback to 1.x
+
+`.env` and `exports.sh` are untouched, so 1.x works again as soon as its
+compose file is back. umbreld offers an update whenever the store's version
+string differs (`!==`), so:
+
+- **Through the store (preferred):** in `csikosjanos/umbrel-app-store`, revert
+  this change but set `version: "2.0.1"` (any new string) in
+  `umbrel-app.yml`. Then use Update in the dashboard. 1.x registers again with
+  `--replace` under the same name.
+- **Immediately, on the box:** put the 1.x `docker-compose.yml` (from git
+  history) into `app-data/csikosjanos-github-runner/` and restart the app from
+  the dashboard. The next store update overwrites it again.
+
+2.x's `data/` dir is left behind and ignored by 1.x.
+
+### Failure isolation
+
+- A failed import only means runner #1 is missing. It never stops the app.
+- Each runner has its own supervising thread. A runner crash restarts only
+  that runner, with backoff (5 s up to 5 min). If it fails quickly, it
+  registers again.
+- An HTTP or UI error affects only that request. If the HTTP server loop
+  itself dies, it restarts without touching the runners.
+- If the manager process itself exits, Docker restarts the container
+  (`unless-stopped`) and every runner registers again (about 1 min). In this
+  design the runners are its child processes, so this case can't be avoided.
+
 ## Files
 
 | Path | What |
 |---|---|
-| `docker-compose.yml` | `runner` service (manager + runners) and app_proxy → `:8080` |
+| `docker-compose.yml` | one-shot `migrate`, `runner` (manager + runners), app_proxy → `:8080` |
 | `manager/manager.py` | Supervisor + JSON API (`/api/runners`, `…/<id>`, `…/<id>/{start,stop,restart,logs}`) |
 | `manager/index.html` | The UI (vanilla JS) |
 | `manager/test_manager.py` | Tests with a fake runner binary and a fake GitHub API: `python3 -m unittest -v test_manager.py` |

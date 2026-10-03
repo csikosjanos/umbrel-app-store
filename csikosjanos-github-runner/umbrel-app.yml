@@ -37,8 +37,9 @@ releaseNotes: >-
   (org or repo scope, labels, group, ephemeral, enabled), each with its own
   write-only token. The UI now requires your Umbrel login. Upgrading imports
   the existing app-data .env (ORG_NAME / ACCESS_TOKEN) as runner #1 with the
-  same name and labels, so workflows keep working. Jobs now run as an
-  unprivileged user (no sudo) on Ubuntu 24.04 (runner 2.337.0).
+  same name and labels, so workflows keep working. The old .env and
+  exports.sh are left untouched so you can roll back (see README). Jobs now
+  run as an unprivileged user (no sudo) on Ubuntu 24.04 (runner 2.337.0).
 dependencies: []
 path: ""
 defaultUsername: ""
