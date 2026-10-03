@@ -1,0 +1,77 @@
+# CLIProxyAPIPlus default config for the Umbrel app (csikosjanos-cliproxyapi).
+#
+# This file is only a TEMPLATE. On first start the app copies it to
+#   ~/umbrel/app-data/csikosjanos-cliproxyapi/data/config.yaml
+# (replacing __CLIENT_API_KEY__ with a random key) and never touches it again.
+# Edit that copy, or use the web UI (CPAMC) Config page; changes hot-reload.
+#
+# Full reference: config.example.yaml in jc01rho/CLIProxyAPIPlus (v8 layout).
+config-version: 8
+
+server:
+  host: ""
+  port: 8317
+
+management:
+  # The browser runs outside the container, so remote management must be on.
+  allow-remote: true
+  # Left empty on purpose. The management key comes from the MANAGEMENT_PASSWORD
+  # env var, which the compose file sets to Umbrel's per-install app password
+  # (shown in the Umbrel dashboard for this app). Setting a value here adds a
+  # second accepted key; it is bcrypt-hashed in place on startup.
+  secret-key: ""
+  disable-control-panel: false
+  panel-github-repository: "https://github.com/jc01rho/Cli-Proxy-API-Management-Center"
+
+# Client keys: what YOUR apps send as "Authorization: Bearer <key>" to this
+# proxy. Not upstream provider keys. A random one is generated on first start.
+access:
+  api-keys:
+    - "__CLIENT_API_KEY__"
+
+routing:
+  strategy: "round-robin"
+
+oauth:
+  # Inside the mounted data dir, so OAuth/auth files survive restarts/updates.
+  auth-dir: "/data/auths"
+
+observability:
+  logs:
+    debug: false
+    # The CPAMC Logs page reads these files, so file logging is on.
+    logging-to-file: true
+    logs-max-total-size-mb: 200
+    request-log: false
+  usage:
+    # In-memory stats for the CPAMC dashboard (reset on restart).
+    usage-statistics-enabled: true
+
+plugins:
+  enabled: false
+
+# Upstream providers. None by default; add one here or in CPAMC
+# (AI Providers -> OpenAI compatible). Example for OpenRouter, which also
+# serves TypeSafe System One decision models via POST /v1/systemone:
+#
+# api-keys:
+#   openai-compatibility:
+#     - name: "openrouter"
+#       base-url: "https://openrouter.ai/api/v1"
+#       keys:
+#         - api-key: "sk-or-v1-REPLACE_ME"
+#       models:
+#         # Keep every model name/alias unique to ONE provider. If the same
+#         # name is listed under two providers, the proxy may pick either
+#         # upstream for a request (or fail over between them) without telling
+#         # you which one answered (concern raised in
+#         # router-for-me/CLIProxyAPI discussion #6045).
+#         # No alias for System One models: /v1/systemone forwards the body
+#         # unchanged, so the "model" your client sends must be the real
+#         # upstream id.
+#         - name: "typesafe/jev-1.13"
+#         - name: "~typesafe/jev-latest"
+#
+# Then: POST http://<host>:8317/v1/systemone with
+# {"model": "typesafe/jev-1.13", "questions": {...}} is forwarded unchanged to
+# https://openrouter.ai/api/v1/systemone.

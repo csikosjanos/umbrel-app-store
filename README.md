@@ -12,5 +12,6 @@ Add in Umbrel: **App Store → ⋯ → Community App Stores → Add** →
 | [<img src="./csikosjanos-qwen3-tts/icon.png" width="40">](https://github.com/QwenLM/Qwen3-TTS) | [Qwen3-TTS](./csikosjanos-qwen3-tts/README.md) | Alibaba Qwen3-TTS text-to-speech (OpenAI-compatible REST API) | 4123 |
 | [<img src="./csikosjanos-open-notebook/icon.png" width="40">](https://github.com/lfnovo/open-notebook) | [Open Notebook](./csikosjanos-open-notebook/README.md) | Self-hosted NotebookLM alternative for AI research | 8502 |
 | [<img src="./csikosjanos-promptfoo/icon.png" width="40">](https://github.com/promptfoo/promptfoo) | [Promptfoo](./csikosjanos-promptfoo/README.md) | Test, compare and red-team your local Ollama models | 8010 |
+| [<img src="./csikosjanos-cliproxyapi/icon.png" width="40">](https://github.com/jc01rho/CLIProxyAPIPlus) | [CLIProxyAPI](./csikosjanos-cliproxyapi/README.md) | AI API proxy with System One passthrough and CPAMC web console | 8317 |
 
 <sub>Logo → upstream project · App name → app docs (config, env vars, details)</sub>

@@ -1,0 +1,89 @@
+# Builds the container image for the csikosjanos-cliproxyapi app.
+#
+# The jc01rho/CLIProxyAPIPlus fork publishes release binaries only, no image
+# (its compose points at eceasy/cli-proxy-api-plus, which is a different
+# build). This checks out the fork at a pinned tag, builds its own Dockerfile
+# unchanged, and pushes ghcr.io/csikosjanos/cliproxyapi-plus:<tag>.
+#
+# The app's docker-compose.yml pins the same tag. To bump: change the default
+# tag below (that push rebuilds), then update the compose image + app version.
+name: build-cliproxyapi
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "jc01rho/CLIProxyAPIPlus git tag to build"
+        required: true
+        default: "v8.0.9-2"
+  push:
+    paths:
+      - .github/workflows/build-cliproxyapi.yml
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  UPSTREAM_REPO: jc01rho/CLIProxyAPIPlus
+  DEFAULT_TAG: v8.0.9-2
+  IMAGE: ghcr.io/csikosjanos/cliproxyapi-plus
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${INPUT_TAG:-$DEFAULT_TAG}"
+          # Only plain release-tag characters; the value ends up in a git ref
+          # and an image tag.
+          [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad tag: $tag"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check out upstream fork at the pinned tag
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Build metadata (VERSION / COMMIT / BUILD_DATE)
+        id: meta
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          {
+            echo "version=$TAG"
+            echo "commit=$(git rev-parse --short HEAD)"
+            echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=CLIProxyAPIPlus (jc01rho fork) ${{ steps.tag.outputs.tag }}, built for the csikosjanos Umbrel app store
+            org.opencontainers.image.revision=${{ steps.meta.outputs.commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
