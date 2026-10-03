@@ -29,7 +29,10 @@ on:
         description: "Full commit SHA the tag must resolve to (required unless tag = DEFAULT_TAG)"
         required: false
         default: ""
+  # Only main publishes images; feature branches (incl. merges of main into
+  # them) must not rebuild and overwrite the released tag.
   push:
+    branches: [main]
     paths:
       - .github/workflows/build-cliproxyapi.yml
 
