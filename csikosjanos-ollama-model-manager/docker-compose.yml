@@ -33,6 +33,10 @@ services:
       # Optional Hugging Face read token, for browsing private repos. Set in
       # app-data/.env, never committed. Unset is fine for public models.
       HF_TOKEN: ${HF_TOKEN:-}
+      # Least privilege for the GPU permission: umbreld defaults this to
+      # "all" (CUDA, graphics, video libs) but keeps a value the app sets.
+      # The app only runs nvidia-smi to read VRAM, which needs "utility".
+      NVIDIA_DRIVER_CAPABILITIES: utility
     volumes:
       # SQLite db: admin account, download queue, usage history, tests,
       # blacklist.
