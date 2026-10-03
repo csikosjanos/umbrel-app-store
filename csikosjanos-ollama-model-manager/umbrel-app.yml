@@ -1,0 +1,54 @@
+manifestVersion: 1
+id: csikosjanos-ollama-model-manager
+storage:
+  dataRoot: data
+name: Ollama Model Manager
+tagline: See, load, unload, download and clean up the models in your Ollama app
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-ollama-model-manager/icon.png
+category: ai
+version: "1.0.0"
+port: 11435
+description: >-
+  A web UI for managing the models of the Ollama app on this box, instead of
+  running ollama list / ps / pull / rm in a terminal. It is a management tool,
+  not a chat app.
+
+
+  See which models are loaded right now, how much of each sits on the GPU and
+  when it will be unloaded, and unload (or load) one with a click. The Models
+  page lists every installed model with its family, size, quantisation,
+  context length, capabilities, download date, last use and load count, and
+  links each one to its page on ollama.com or Hugging Face.
+
+
+  Search the Ollama library and Hugging Face GGUF repos from the app, or type
+  any name (llama3.2, qwen3:8b, hf.co/user/repo:Q4_K_M). Downloads run in a
+  background queue with progress, speed and ETA, and survive a restart.
+
+
+  Also: usage history, disk-space reclaiming (unused models, duplicate
+  quantisations), side-by-side model tests, a blacklist of models you deleted
+  and why, and a check for new Ollama releases.
+
+
+  Two logins: Umbrel's, then the app's own admin account. The first admin
+  password is printed once in the app's logs on first start; change it under
+  Settings after signing in.
+developer: mophead64 (Josh Walker), packaged by csikosjanos
+website: https://github.com/mophead64/ollama-model-manager
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/mophead64/ollama-model-manager
+support: https://github.com/mophead64/ollama-model-manager/issues
+gallery: []
+releaseNotes: >-
+  1.0.0 — First release. Ollama Model Manager 2026.10.01.1, image pinned by
+  digest (provenance attestation verified against upstream commit b8355b8).
+  Talks to the Ollama app only through its API over Umbrel's internal
+  network. No GPU access, no Docker socket, no access to Ollama's files.
+  Umbrel login stays on, on top of the app's own login.
+dependencies:
+  - ollama
+path: ""
+defaultUsername: ""
+defaultPassword: ""
