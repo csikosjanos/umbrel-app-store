@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-cliproxyapi_server_1
+      APP_PORT: 8317
+      # The proxy has its own auth (client API keys + management key), and API
+      # clients cannot do Umbrel's login, so Umbrel auth stays off.
+      PROXY_AUTH_ADD: "false"
+
+  server:
+    # Self-built from jc01rho/CLIProxyAPIPlus at this tag by
+    # .github/workflows/build-cliproxyapi.yml (the fork publishes no image).
+    image: ghcr.io/csikosjanos/cliproxyapi-plus:v8.0.9-2
+    restart: on-failure
+    # NOTE: do NOT publish 8317 here. Umbrel's app_proxy already binds host
+    # 8317 (manifest `port`) and proxies to this container over the internal
+    # network; publishing it again fails with "port is already allocated".
+    # The fork's OAuth callback ports (8085/1455/54545/51121/11451) are left
+    # out too: those callbacks target localhost on the machine running the
+    # browser. Remote OAuth logins go through the web UI instead (paste the
+    # redirect URL; /v0/management/oauth-callback). API-key upstreams such as
+    # OpenRouter need only 8317.
+    environment:
+      # Management key = Umbrel's per-install app password (derived from the
+      # Umbrel seed, shown in the dashboard via deterministicPassword: true).
+      # The proxy accepts it in plaintext and it also enables remote management.
+      MANAGEMENT_PASSWORD: ${APP_PASSWORD}
+      # logs/, static/ (downloaded management.html) and discovery state all go
+      # under the persistent data dir instead of the image filesystem.
+      WRITABLE_PATH: /data
+      # The image bakes in Asia/Shanghai; override in app-data/.env if wanted.
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      # config.yaml, auths/, logs/, static/ (persistent)
+      - ${APP_DATA_DIR}/data:/data
+      # Seed template shipped with this app (read-only).
+      - ${APP_DATA_DIR}/default-config.yaml:/seed/config.yaml:ro
+    # First start: copy the template to /data/config.yaml with a random client
+    # API key. Never overwrites an existing config. `$$` = literal `$` in compose.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ ! -f /data/config.yaml ]; then
+          key="sk-$$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          sed "s/__CLIENT_API_KEY__/$${key}/" /seed/config.yaml > /data/config.yaml
+          chmod 600 /data/config.yaml
+          echo "seeded /data/config.yaml (client API key generated; see the web UI or config.yaml)"
+        fi
+        exec /CLIProxyAPI/CLIProxyAPIPlus -config /data/config.yaml

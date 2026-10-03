@@ -1,0 +1,49 @@
+manifestVersion: 1
+id: csikosjanos-cliproxyapi
+name: CLIProxyAPI
+tagline: AI API proxy with System One passthrough and the CPAMC web console
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-cliproxyapi/icon.png
+category: ai
+version: "1.0.0"
+port: 8317
+description: >-
+  CLIProxyAPI is a self-hosted proxy that puts many AI providers behind one
+  OpenAI/Claude/Gemini-compatible API with your own client keys. Point your
+  apps at this box, and route each model to the upstream you choose (any
+  OpenAI-compatible endpoint such as OpenRouter, plus API keys or OAuth logins
+  for the big providers).
+
+
+  This app runs the jc01rho/CLIProxyAPIPlus fork because it adds a plain
+  passthrough for TypeSafe System One decision requests: POST /v1/systemone is
+  forwarded unchanged to <provider base URL>/v1/systemone and the raw upstream
+  JSON comes back. With OpenRouter as the provider, decision models such as
+  typesafe/jev-1.13 work through the proxy without any translation layer.
+
+
+  Managed from the bundled CPAMC web console (CLI Proxy API Management Center),
+  which opens from the Umbrel dashboard: dashboard, AI providers, auth files and
+  OAuth, quotas, logs, and a visual/YAML config editor with live reload. Log in
+  with the password Umbrel shows for this app.
+
+
+  Starts with no providers. Add your OpenRouter (or other) key in the web
+  console after install. Keep it on your LAN or tailnet: the proxy spends your
+  provider credit for anyone holding a client key.
+developer: router-for-me (CLIProxyAPI), jc01rho (Plus fork), packaged by csikosjanos
+website: https://github.com/jc01rho/CLIProxyAPIPlus
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/jc01rho/CLIProxyAPIPlus
+support: https://github.com/jc01rho/CLIProxyAPIPlus/issues
+gallery: []
+releaseNotes: >-
+  1.0.0 — First release. CLIProxyAPIPlus v8.0.9-2 (jc01rho fork), self-built
+  image ghcr.io/csikosjanos/cliproxyapi-plus:v8.0.9-2. Seeds a default
+  config.yaml on first start (no providers, random client API key, file logging
+  on). Management key = the Umbrel app password. Only port 8317 is exposed; the
+  fork's OAuth callback ports are not published.
+dependencies: []
+path: /management.html
+defaultUsername: ""
+deterministicPassword: true

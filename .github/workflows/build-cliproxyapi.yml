@@ -1,0 +1,115 @@
+# Builds the container image for the csikosjanos-cliproxyapi app.
+#
+# The jc01rho/CLIProxyAPIPlus fork publishes release binaries only, no image
+# (its compose points at eceasy/cli-proxy-api-plus, which is a different
+# build). This checks out the fork at a pinned commit, builds its own
+# Dockerfile unchanged, and pushes ghcr.io/csikosjanos/cliproxyapi-plus:<tag>.
+#
+# Supply-chain hardening:
+# - The upstream source is pinned by commit SHA; the tag is only used as the
+#   image tag / VERSION, and the build fails if the tag no longer points at
+#   that SHA (tags are mutable).
+# - The third-party checkout does not persist GITHUB_TOKEN (packages: write)
+#   in .git/config, so it cannot leak into the build context or image.
+# - All actions are pinned to full commit SHAs.
+#
+# The app's docker-compose.yml pins the same tag. To bump: change DEFAULT_TAG
+# and DEFAULT_SHA below (that push rebuilds), then update the compose image +
+# app version.
+name: build-cliproxyapi
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "jc01rho/CLIProxyAPIPlus git tag (image tag / VERSION)"
+        required: true
+        default: "v8.0.9-2"
+      sha:
+        description: "Full commit SHA the tag must resolve to (required unless tag = DEFAULT_TAG)"
+        required: false
+        default: ""
+  push:
+    paths:
+      - .github/workflows/build-cliproxyapi.yml
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  UPSTREAM_REPO: jc01rho/CLIProxyAPIPlus
+  DEFAULT_TAG: v8.0.9-2
+  DEFAULT_SHA: ceb7ae461732614cc1afec3070b8ee2ba49fa62d
+  IMAGE: ghcr.io/csikosjanos/cliproxyapi-plus
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag + pinned SHA, verify the tag still points at it
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          tag="${INPUT_TAG:-$DEFAULT_TAG}"
+          sha="${INPUT_SHA}"
+          # Only plain release-tag characters; the value ends up in an image tag.
+          [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad tag: $tag"; exit 1; }
+          if [[ -z "$sha" ]]; then
+            [[ "$tag" == "$DEFAULT_TAG" ]] || { echo "tag $tag needs an explicit sha input"; exit 1; }
+            sha="$DEFAULT_SHA"
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "bad sha: $sha"; exit 1; }
+          # Peeled (^{}) entry wins for annotated tags; else the direct one.
+          remote=$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" \
+            "refs/tags/${tag}" "refs/tags/${tag}^{}" | sort -k2 | tail -n1 | cut -f1)
+          [[ "$remote" == "$sha" ]] || { echo "tag $tag resolves to '${remote}', expected $sha"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out upstream fork at the pinned commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ steps.tag.outputs.sha }}
+          persist-credentials: false
+
+      - name: Build metadata (VERSION / COMMIT / BUILD_DATE)
+        id: meta
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          {
+            echo "version=$TAG"
+            echo "commit=$(git rev-parse --short HEAD)"
+            echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (linux/amd64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=CLIProxyAPIPlus (jc01rho fork) ${{ steps.tag.outputs.tag }}, built for the csikosjanos Umbrel app store
+            org.opencontainers.image.revision=${{ steps.meta.outputs.commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
