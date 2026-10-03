@@ -37,8 +37,11 @@ services:
       # SQLite db: admin account, download queue, usage history, tests,
       # blacklist.
       - ${APP_DATA_DIR}/data:/data
-    # Deliberately not given: GPU access, docker.sock, or a mount of the
-    # Ollama app's models folder. Model pulls/deletes and per-model VRAM all
-    # go through the Ollama API (/api/pull, /api/delete, /api/ps). Without
-    # them only the System page's live GPU graph, Discover's "fits in VRAM"
-    # check and the free-disk-space tile are missing.
+    # GPU access comes from `permissions: [GPU]` in umbrel-app.yml: umbreld
+    # adds the NVIDIA reservation, and the container toolkit puts nvidia-smi
+    # in the container, which the app uses only to read VRAM (fit marks, GPU
+    # graph). No compute on the GPU.
+    # Deliberately not given: docker.sock, or a mount of the Ollama app's
+    # models folder. Model pulls/deletes and per-model VRAM go through the
+    # Ollama API (/api/pull, /api/delete, /api/ps). Without the mount only the
+    # free-disk-space tile is missing.

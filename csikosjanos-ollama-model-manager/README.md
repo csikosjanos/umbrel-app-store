@@ -59,7 +59,7 @@ tailscale serve --bg --https=21435 localhost:11435
 
 ## Notes and limitations
 
-- **No GPU, no docker.sock, no Ollama files.** Everything goes through the Ollama API. Missing as a result: the System page's live GPU graph, Discover's "fits in VRAM" marks, and the free-disk-space tile (upstream reads those from `nvidia-smi` and a mount of Ollama's models folder). Per-model VRAM still shows (from `/api/ps`).
+- **GPU access (`permissions: [GPU]`, since 1.0.1), no docker.sock, no Ollama files.** The GPU access is only so the app can run `nvidia-smi` to read VRAM: it powers Discover's "fits in VRAM" marks and the System page's live GPU graph. Models are pulled/deleted through the Ollama API. Missing: the free-disk-space tile (upstream reads it from a mount of Ollama's models folder).
 - **Server settings** (context length, parallel requests, flash attention, KV cache) are Ollama env vars. The app's *Settings → Ollama settings* only suggests values; apply them in the Ollama app's compose (see homelab #16/#17).
 - **Runs as `1000:1000`** so it owns `data/` (umbrelOS creates committed package dirs as `1000:1000`; the distroless image has no shell to chown).
 - **Outbound calls:** ollama.com and huggingface.co (search, pulls via Ollama), api.github.com (release checks).
