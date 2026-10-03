@@ -1,0 +1,52 @@
+manifestVersion: 1
+id: csikosjanos-laya
+name: Laya System One
+tagline: Self-hosted System One decision model with a TypeSafe Jev-compatible API
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-laya/icon.png
+category: ai
+version: "0.3.24"
+port: 8720
+description: >-
+  Laya is an open (Apache-2.0), non-autoregressive "System One" decision model:
+  instead of generating text it answers typed questions about a state with
+  calibrated probabilities (yes/no "noul", "choice" and "score"), in tens of
+  milliseconds. This app runs Laya's own laya-serve HTTP server, which speaks
+  the TypeSafe Jev wire format: POST /v1/systemone with {state, model,
+  questions} returns {model, answers, usage}. Clients written for Jev (the
+  TypeSafe SDKs, or CLIProxyAPI's System One passthrough) can point at this box
+  instead of api.typesafe.ai.
+
+
+  There is no web UI; it is an API. Authenticate with
+  "Authorization: Bearer <the password Umbrel shows for this app>". GET /health
+  reports which checkpoints are loaded and whether they run on GPU or CPU.
+
+
+  On first start it downloads the English checkpoint (~0.9 GB, ModernBERT-large,
+  421M params) from Hugging Face; the multilingual (~0.7 GB) and typed-decisions
+  (~0.9 GB) checkpoints download on first use.
+
+
+  Resources: capped at 4 CPU cores and 6 GB RAM. On the GPU it needs roughly
+  1-1.5 GB of VRAM per loaded checkpoint (up to 2 loaded), so it can share an
+  8 GB card with a small Ollama model. If the GPU is busy or missing it falls
+  back to the CPU automatically. Set LAYA_DEVICE=cpu in the app's .env to keep
+  it off the GPU entirely.
+developer: Convai Innovations (Laya), packaged by csikosjanos
+website: https://huggingface.co/convaiinnovations/laya
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/NandhaKishorM/laya
+support: https://github.com/NandhaKishorM/laya/issues
+gallery: []
+permissions:
+  - GPU
+releaseNotes: >-
+  0.3.24 — First release. Laya v0.3.24 (pinned commit), self-built image
+  ghcr.io/csikosjanos/laya:v0.3.24-cu126 (torch 2.14.0, CUDA 12.6 wheels, runs
+  on the 550 driver). Strict Jev response shape, weights pinned to the reviewed
+  Hub commits, bearer key = Umbrel app password, 4 CPU / 6 GB RAM limits.
+dependencies: []
+path: /health
+defaultUsername: ""
+deterministicPassword: true
