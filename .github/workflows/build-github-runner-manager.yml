@@ -1,0 +1,65 @@
+# Builds the image for the csikosjanos-github-runner app (UI + runner manager)
+# and pushes ghcr.io/csikosjanos/github-runner-manager:<app version>.
+#
+# The tag is the `version` in csikosjanos-github-runner/umbrel-app.yml, which
+# the app's docker-compose.yml pins. To release: change the code, bump both.
+name: build-github-runner-manager
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - csikosjanos-github-runner/manager/**
+      - csikosjanos-github-runner/umbrel-app.yml
+      - .github/workflows/build-github-runner-manager.yml
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/csikosjanos/github-runner-manager
+  APP_DIR: csikosjanos-github-runner
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit tests
+        working-directory: ${{ env.APP_DIR }}/manager
+        run: python3 -m unittest -v test_manager.py
+
+      - name: Read app version
+        id: v
+        run: |
+          version="$(yq '.version' "$APP_DIR/umbrel-app.yml")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad version: $version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}/manager
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.v.outputs.version }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Smoke test (UI answers, API lists runners)
+        run: |
+          docker run -d --name m -p 8080:8080 "$IMAGE:${{ steps.v.outputs.version }}"
+          for i in $(seq 30); do curl -fs localhost:8080/api/runners && break; sleep 1; done
+          curl -fs localhost:8080/ | grep -q "GitHub Runners"
+          docker logs m
