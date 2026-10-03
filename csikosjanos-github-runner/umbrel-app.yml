@@ -1,35 +1,45 @@
 manifestVersion: 1
 id: csikosjanos-github-runner
 name: GitHub Runner
-tagline: Self-hosted GitHub Actions runner for your org
+tagline: Self-hosted GitHub Actions runners with a web UI
 icon: https://raw.githubusercontent.com/github/explore/main/topics/actions/actions.png
 category: developer
-version: "1.0.0"
+version: "2.0.0"
 port: 9200
 description: >-
-  A self-hosted GitHub Actions runner, packaged as an Umbrel app so it is
-  managed by umbreld and survives reboots and OTA updates (unlike a manually
-  started container, which umbreld removes on each boot).
+  Self-hosted GitHub Actions runners with a web UI, packaged as an Umbrel app
+  so they are managed by umbreld and survive reboots and OTA updates.
 
 
-  Registers as an organisation-wide runner using a GitHub PAT, so it can pick
-  up jobs from any repository in the org that targets it with
-  `runs-on: [self-hosted, umbrel]`.
+  Add, edit, start, stop and remove any number of runners. Each runner has its
+  own scope (an organisation or a single repository), name, labels, runner
+  group, ephemeral flag and its own GitHub personal access token. Tokens are
+  write-only: you enter one once, it is stored on the box (root-only, 0600) and
+  is never shown again, returned by the API or written to logs; the UI only
+  shows when it was last updated. Each runner shows whether it is online, the
+  job it is running and a tail of its log. Changing a runner restarts only that
+  runner.
 
 
-  The runner image is minimal — jobs should bring their own toolchains via
-  `actions/setup-node`, `actions/setup-python`, etc. Configure the org name and
-  PAT after install by editing the app's `.env` (see README). This app has no
-  real web UI; the "Open" page only shows status text — check the container
-  logs for runner activity.
-developer: myoung34 (runner image), packaged by csikosjanos
+  All runners run in one container, each as its own unprivileged user, so jobs
+  cannot read the tokens. The job image is minimal Ubuntu; jobs bring their own
+  toolchains via `actions/setup-node`, `actions/setup-python`, etc.
+
+developer: csikosjanos (runner manager), myoung34 (base runner image)
 website: https://github.com/csikosjanos/umbrel-app-store
 submitter: csikosjanos
 submission: ""
-repo: https://github.com/myoung34/docker-github-actions-runner
+repo: https://github.com/csikosjanos/umbrel-app-store/tree/main/csikosjanos-github-runner
 support: https://github.com/csikosjanos/umbrel-app-store/issues
 gallery: []
-releaseNotes: ""
+releaseNotes: >-
+  2.0.0 — Web UI replaces the static status page. Manage several runners
+  (org or repo scope, labels, group, ephemeral, enabled), each with its own
+  write-only token. The UI now requires your Umbrel login. Upgrading imports
+  the existing app-data .env (ORG_NAME / ACCESS_TOKEN) as runner #1 with the
+  same name and labels, so workflows keep working. The old .env and
+  exports.sh are left untouched so you can roll back (see README). Jobs now
+  run as an unprivileged user (no sudo) on Ubuntu 24.04 (runner 2.337.0).
 dependencies: []
 path: ""
 defaultUsername: ""

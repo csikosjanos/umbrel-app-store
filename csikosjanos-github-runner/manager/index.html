@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GitHub Runners</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#5b6470; --line:#d9dde3;
+          --accent:#1f6feb; --ok:#1a7f37; --busy:#9a6700; --bad:#cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d1117; --card:#161b22; --fg:#e6edf3; --muted:#8d96a0; --line:#30363d;
+            --accent:#4493f8; --ok:#3fb950; --busy:#d29922; --bad:#f85149; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+  h1 { font-size: 20px; margin: 0; }
+  button { font: inherit; border:1px solid var(--line); background:var(--card); color:var(--fg);
+           border-radius:6px; padding:5px 10px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--bad); }
+  .runner { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
+  .name { font-weight:600; font-size:15px; }
+  .meta { color:var(--muted); }
+  .pill { border-radius:999px; padding:1px 9px; font-size:12px; border:1px solid currentColor; }
+  .idle { color:var(--ok); } .busy { color:var(--busy); } .error { color:var(--bad); }
+  .stopped, .disabled, .starting, .configuring, .connecting { color:var(--muted); }
+  .actions { margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px;
+        max-height:320px; overflow:auto; font-size:12px; white-space:pre-wrap; word-break:break-all; }
+  dialog { border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg);
+           width:min(480px, calc(100% - 32px)); }
+  dialog::backdrop { background:rgba(0,0,0,.4); }
+  label { display:block; margin:10px 0 3px; font-weight:500; }
+  input, select { width:100%; font:inherit; padding:6px 8px; border:1px solid var(--line);
+                  border-radius:6px; background:var(--bg); color:var(--fg); }
+  .check { display:flex; gap:8px; align-items:center; font-weight:400; }
+  .check input { width:auto; }
+  .hint { color:var(--muted); font-size:12px; margin-top:2px; }
+  .err { color:var(--bad); min-height:1.4em; margin-top:8px; }
+  .notice { border:1px solid var(--busy); border-radius:8px; padding:10px 14px; margin-bottom:12px; }
+  .empty { color:var(--muted); text-align:center; padding:40px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>GitHub Runners</h1>
+    <button class="primary" id="add">Add runner</button>
+  </header>
+  <div class="notice" id="legacy" hidden>
+    The 1.x token file <code>app-data/csikosjanos-github-runner/.env</code> (and <code>exports.sh</code>) is still on the box,
+    so the token is stored twice. It is kept on purpose so you can roll back to 1.x. Once runner #1 shows
+    <b>idle</b> and has run a real job, delete both (see the app README).
+  </div>
+  <div id="list"></div>
+</main>
+
+<dialog id="dlg">
+  <form id="form" method="dialog">
+    <h2 id="dlg-title" style="margin:0 0 4px;font-size:17px">Add runner</h2>
+    <label for="f-name">Name</label>
+    <input id="f-name" name="name" required maxlength="64" pattern="[A-Za-z0-9._\-]+">
+    <label for="f-scope">Scope</label>
+    <select id="f-scope" name="scope">
+      <option value="org">Organisation</option>
+      <option value="repo">Repository</option>
+    </select>
+    <label for="f-target" id="f-target-label">Organisation</label>
+    <input id="f-target" name="target" required>
+    <label for="f-labels">Labels</label>
+    <input id="f-labels" name="labels">
+    <div class="hint">Comma-separated. Workflows target them with <code>runs-on: [self-hosted, umbrel]</code>.</div>
+    <div id="group-wrap">
+      <label for="f-group">Runner group</label>
+      <input id="f-group" name="group" maxlength="64">
+    </div>
+    <label class="check"><input type="checkbox" id="f-ephemeral" name="ephemeral"> Ephemeral (fresh registration per job)</label>
+    <label class="check"><input type="checkbox" id="f-enabled" name="enabled"> Enabled</label>
+    <label for="f-pat">Personal access token</label>
+    <input id="f-pat" name="pat" type="password" autocomplete="new-password" spellcheck="false">
+    <div class="hint" id="pat-hint"></div>
+    <div class="err" id="f-err"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:8px">
+      <button type="button" id="cancel">Cancel</button>
+      <button type="submit" class="primary" id="save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const openLogs = new Set();
+let runners = [], editing = null;
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json", "X-Runner-UI": "1" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+
+function when(iso) {
+  return iso ? new Date(iso).toLocaleString() : "never";
+}
+
+async function act(fn) {
+  try { await fn(); } catch (e) { alert(e.message); }
+  refresh();
+}
+
+function card(r) {
+  const label = r.status === "busy" ? `busy: ${r.job}` : r.status;
+  const logs = el("pre", { id: `logs-${r.id}` });
+  logs.hidden = !openLogs.has(r.id);
+  return el("div", { class: "runner" },
+    el("div", { class: "row" },
+      el("span", { class: "name" }, r.name),
+      el("span", { class: `pill ${r.status}` }, label),
+      el("span", { class: "meta" }, `${r.scope === "org" ? "org" : "repo"}: ${r.target}`),
+      el("div", { class: "actions" },
+        r.enabled
+          ? el("button", { onclick: () => act(() => api("POST", `/api/runners/${r.id}/stop`)) }, "Stop")
+          : el("button", { onclick: () => act(() => api("POST", `/api/runners/${r.id}/start`)) }, "Start"),
+        el("button", { onclick: () => act(() => api("POST", `/api/runners/${r.id}/restart`)) }, "Restart"),
+        el("button", { onclick: () => { openLogs.has(r.id) ? openLogs.delete(r.id) : openLogs.add(r.id); refresh(); } }, "Logs"),
+        el("button", { onclick: () => edit(r) }, "Edit"),
+        el("button", { class: "danger", onclick: () => confirm(`Remove runner "${r.name}" and unregister it from GitHub?`) && act(() => api("DELETE", `/api/runners/${r.id}`)) }, "Remove"),
+      ),
+    ),
+    el("div", { class: "row meta", style: "margin-top:6px" },
+      el("span", {}, `labels: ${r.labels || "(default)"}`),
+      r.scope === "org" ? el("span", {}, `group: ${r.group}`) : null,
+      r.ephemeral ? el("span", {}, "ephemeral") : null,
+      el("span", {}, r.pat_set ? `token: set, updated ${when(r.pat_updated)}` : "token: NOT SET"),
+    ),
+    r.error ? el("div", { class: "err" }, r.error) : null,
+    logs,
+  );
+}
+
+async function refresh() {
+  try { runners = await api("GET", "/api/runners"); } catch (e) { return; }
+  const list = $("list");
+  list.replaceChildren(...(runners.length ? runners.map(card)
+    : [el("div", { class: "empty" }, "No runners yet. Add one with a GitHub personal access token.")]));
+  for (const id of openLogs) {
+    const pre = $(`logs-${id}`);
+    if (!pre) continue;
+    const { lines } = await api("GET", `/api/runners/${id}/logs`);
+    pre.textContent = lines.join("\n") || "(no output yet)";
+    pre.scrollTop = pre.scrollHeight;
+  }
+}
+
+function syncScope() {
+  const org = $("f-scope").value === "org";
+  $("f-target-label").textContent = org ? "Organisation" : "Repository (owner/repo)";
+  $("f-target").placeholder = org ? "MyOrg" : "owner/repo";
+  $("group-wrap").hidden = !org;
+}
+
+function edit(r) {
+  editing = r;
+  $("dlg-title").textContent = r ? `Edit ${r.name}` : "Add runner";
+  $("f-name").value = r ? r.name : "";
+  $("f-scope").value = r ? r.scope : "org";
+  $("f-target").value = r ? r.target : "";
+  $("f-labels").value = r ? r.labels : "self-hosted,linux,x64,umbrel";
+  $("f-group").value = r ? r.group : "default";
+  $("f-ephemeral").checked = r ? r.ephemeral : false;
+  $("f-enabled").checked = r ? r.enabled : true;
+  $("f-pat").value = "";
+  $("f-pat").required = !r;
+  $("f-pat").placeholder = r ? "Leave blank to keep the stored token" : "github_pat_…";
+  $("pat-hint").textContent = r
+    ? `Stored token last updated ${when(r.pat_updated)}. It is never shown; enter a new one to replace it.`
+    : "Needs Self-hosted runners: read & write (org) or Administration: read & write (repo). Stored on the box only, never shown again.";
+  $("f-err").textContent = "";
+  syncScope();
+  $("dlg").showModal();
+}
+
+$("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = {
+    name: $("f-name").value, scope: $("f-scope").value, target: $("f-target").value,
+    labels: $("f-labels").value, group: $("f-group").value,
+    ephemeral: $("f-ephemeral").checked, enabled: $("f-enabled").checked,
+  };
+  if ($("f-pat").value) body.pat = $("f-pat").value;
+  $("save").disabled = true;
+  try {
+    if (editing) await api("PUT", `/api/runners/${editing.id}`, body);
+    else await api("POST", "/api/runners", body);
+    $("f-pat").value = "";
+    $("dlg").close();
+    refresh();
+  } catch (e) {
+    $("f-err").textContent = e.message;
+  } finally {
+    $("save").disabled = false;
+  }
+});
+$("dlg").addEventListener("close", () => { $("f-pat").value = ""; });
+$("cancel").addEventListener("click", () => $("dlg").close());
+$("add").addEventListener("click", () => edit(null));
+$("f-scope").addEventListener("change", syncScope);
+api("GET", "/api/info").then((i) => { $("legacy").hidden = !i.legacy_env_present; }).catch(() => {});
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>
