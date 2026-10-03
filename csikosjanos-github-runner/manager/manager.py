@@ -222,6 +222,19 @@ def github_token(pat, r, kind):
 
 # ---------------------------------------------------------------- runners
 
+def prepare_runners_root():
+    """Create RUNNERS so each runner uid can use its own subdirectory.
+
+    0755, not 0711: Runner.Listener refuses to start unless it can READ every
+    directory above its own ("Permission to read the directory contents is
+    required for '/runners/1' and each directory up the hierarchy").
+    Isolation still holds: others only see the numeric dir names, and each
+    runner dir is 0700, owned by that runner's uid.
+    """
+    os.makedirs(RUNNERS, exist_ok=True)
+    os.chmod(RUNNERS, 0o755)
+
+
 class RunnerProc:
     """Supervises one runner: configure, run, restart with backoff, stop."""
 
@@ -612,8 +625,7 @@ def main():
         except Exception as e:
             log("migrate failed: %s" % e)
         return 0
-    os.makedirs(RUNNERS, exist_ok=True)
-    os.chmod(RUNNERS, 0o711)  # runners can enter their own dir only
+    prepare_runners_root()
     Handler.manager = manager = Manager()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
 
