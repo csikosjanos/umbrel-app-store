@@ -1,0 +1,35 @@
+#!/bin/bash
+# Terminal container entrypoint (the `fm` service).
+# 1. Seed the persistent home (/root = app-data/data, empty on first start).
+# 2. Clone firstmate into /root/firstmate on first start (pinned commit, on
+#    the main branch, so `git pull` / /updatefirstmate update it later and the
+#    update persists).
+# 3. Serve tmux through ttyd on a UNIX socket in the shared run volume. There
+#    is no TCP port: the web container is the only way in.
+set -u
+SOCK="${TTYD_SOCK:-/run/fm/ttyd.sock}"
+
+for f in .bashrc .profile; do
+  [ -e "/root/$f" ] || cp "/etc/skel/$f" "/root/$f"
+done
+mkdir -p /root/.local/bin /root/.npm-global/bin
+
+if [ ! -d /root/firstmate/.git ]; then
+  echo "fm-start: cloning $FIRSTMATE_REPO at $FIRSTMATE_REF into /root/firstmate"
+  rm -rf /root/firstmate.partial
+  if git clone --quiet "$FIRSTMATE_REPO" /root/firstmate.partial \
+    && git -C /root/firstmate.partial reset --quiet --hard "$FIRSTMATE_REF"; then
+    mv /root/firstmate.partial /root/firstmate
+  else
+    rm -rf /root/firstmate.partial
+    echo "fm-start: WARNING: cloning firstmate failed; retrying on the next start." \
+      "Or clone it in the terminal: git clone $FIRSTMATE_REPO ~/firstmate"
+  fi
+fi
+
+mkdir -p "$(dirname "$SOCK")"
+rm -f "$SOCK"
+echo "fm-start: ttyd on $SOCK (base path /terminal)"
+exec ttyd --writable --interface "$SOCK" --base-path /terminal \
+  --client-option titleFixed=firstmate \
+  /usr/local/bin/fm-session

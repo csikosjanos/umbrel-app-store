@@ -1,0 +1,60 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      # The web UI is the entry point; it serves Settings and proxies the
+      # terminal (ttyd, incl. its WebSocket) under /terminal/.
+      APP_HOST: csikosjanos-firstmate_web_1
+      APP_PORT: 8080
+      # PROXY_AUTH_ADD is deliberately not set: the default (on) keeps the app
+      # behind the Umbrel login. The terminal is a root shell in `fm`.
+
+  # Settings UI + terminal proxy. Small, no access to the home volume.
+  # The only container that writes settings/; it never exposes the values.
+  web:
+    image: ghcr.io/csikosjanos/firstmate-umbrel:0.1.0
+    command: ["python3", "/opt/firstmate-web/server.py"]
+    restart: unless-stopped
+    volumes:
+      # settings.json + env.sh (both 0600, directory 0700)
+      - ${APP_DATA_DIR}/settings:/settings
+      # ttyd's UNIX socket, shared with `fm`
+      - ${APP_DATA_DIR}/run:/run/fm
+    cap_drop:
+      - ALL
+    cap_add:
+      # Root here only needs to write settings/ and reach the socket even if
+      # umbrelOS created those directories as another user.
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 256
+
+  # tmux in the browser (ttyd) + Claude Code, Pi, OpenCode, gh, git.
+  # No published port, no TCP listener: ttyd serves a UNIX socket in run/,
+  # so the only way in is the web service above (behind the Umbrel login).
+  # No docker.sock, no host mounts beyond app-data, not privileged.
+  fm:
+    image: ghcr.io/csikosjanos/firstmate-umbrel:0.1.0
+    restart: unless-stopped
+    hostname: firstmate
+    stop_grace_period: 30s
+    volumes:
+      # /root = persistent home: ~/firstmate (cloned on first start), harness
+      # logins (~/.claude, ...), gh auth, projects, npm -g upgrades.
+      - ${APP_DATA_DIR}/data:/root
+      # Settings from the web UI, read-only here; sourced by every bash.
+      - ${APP_DATA_DIR}/settings:/settings:ro
+      - ${APP_DATA_DIR}/run:/run/fm
+    security_opt:
+      - no-new-privileges:true
+    # Generous on purpose (a crew of agents), but bounded so the production
+    # GitHub runner on the same box keeps headroom (box: 20 threads, 62 GB).
+    cpus: 12
+    mem_limit: 24g
+    pids_limit: 16384
+    shm_size: 1g

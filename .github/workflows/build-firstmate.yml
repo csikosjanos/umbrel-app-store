@@ -1,0 +1,168 @@
+# Builds the image for the csikosjanos-firstmate app (terminal + web UI, one
+# image, two services) and pushes ghcr.io/csikosjanos/firstmate-umbrel:<app version>.
+#
+# The tag is the `version` in csikosjanos-firstmate/umbrel-app.yml, which the
+# app's docker-compose.yml pins. To release: change the image, bump both.
+# Upstream pins (base image digest, ttyd/gh sha256, harness npm versions,
+# firstmate commit) live in csikosjanos-firstmate/image/Dockerfile.
+name: build-firstmate
+
+on:
+  workflow_dispatch:
+  # Only main publishes images. PRs run the same tests + smoke test on a local
+  # build, without pushing or logging in, so a branch can never overwrite the
+  # released tag.
+  push:
+    branches: [main]
+    paths:
+      - csikosjanos-firstmate/image/**
+      - csikosjanos-firstmate/umbrel-app.yml
+      - csikosjanos-firstmate/docker-compose.yml
+      - .github/workflows/build-firstmate.yml
+  pull_request:
+    paths:
+      - csikosjanos-firstmate/image/**
+      - csikosjanos-firstmate/umbrel-app.yml
+      - csikosjanos-firstmate/docker-compose.yml
+      - .github/workflows/build-firstmate.yml
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/csikosjanos/firstmate-umbrel
+  APP_DIR: csikosjanos-firstmate
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Unit tests (web UI)
+        working-directory: ${{ env.APP_DIR }}/image/web
+        run: python3 -m unittest -v test_server.py
+
+      - name: Read app version, check the compose file pins it
+        id: v
+        run: |
+          version="$(yq '.version' "$APP_DIR/umbrel-app.yml")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad version: $version"; exit 1; }
+          for svc in web fm; do
+            img="$(yq ".services.$svc.image" "$APP_DIR/docker-compose.yml")"
+            [ "$img" = "$IMAGE:$version" ] || { echo "$svc image is $img, expected $IMAGE:$version"; exit 1; }
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ env.APP_DIR }}/image
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.v.outputs.version }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=firstmate (tmux + ttyd + Claude Code, Pi, OpenCode) and its web UI, for the csikosjanos Umbrel app store
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Same volumes, caps and commands as the app's docker-compose.yml.
+      - name: Smoke test
+        env:
+          TAG: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          img="$IMAGE:$TAG"
+          d="$RUNNER_TEMP/app-data"
+          mkdir -p "$d/data" "$d/settings" "$d/run"
+          docker run -d --name fm-smoke --security-opt no-new-privileges:true \
+            -v "$d/data:/root" -v "$d/settings:/settings:ro" -v "$d/run:/run/fm" "$img"
+          docker run -d --name web-smoke -p 8080:8080 \
+            --cap-drop ALL --cap-add DAC_OVERRIDE --cap-add FOWNER --security-opt no-new-privileges:true \
+            -v "$d/settings:/settings" -v "$d/run:/run/fm" "$img" python3 /opt/firstmate-web/server.py
+          ui=localhost:8080   # from the host = via the bridge gateway, like umbreld's app gateway
+
+          echo "::group::web UI up, terminal up"
+          for i in $(seq 120); do
+            curl -fs "$ui/api/status" | grep -q '"terminal": true' && break; sleep 1
+          done
+          curl -fs "$ui/api/status"; echo
+          curl -fs "$ui/api/status" | grep -q '"terminal": true'
+          curl -fs "$ui/" | grep -q "<title>Firstmate</title>"
+          echo "::endgroup::"
+
+          echo "::group::ttyd answers through the web container"
+          curl -fs "$ui/terminal/" | grep -qi "ttyd"
+          curl -fs "$ui/terminal/token" | grep -q token
+          echo "::endgroup::"
+
+          echo "::group::ttyd has no TCP listener (only the UNIX socket)"
+          # state 0A = LISTEN in /proc/net/tcp{,6}
+          if docker exec fm-smoke sh -c 'cat /proc/net/tcp /proc/net/tcp6 2>/dev/null' | awk 'NR>1 && $4=="0A"' | grep -q .; then
+            echo "fm has a TCP listener:"; docker exec fm-smoke sh -c 'cat /proc/net/tcp /proc/net/tcp6'; exit 1
+          fi
+          echo "::endgroup::"
+
+          echo "::group::settings API: CSRF header enforced, values write-only"
+          value="smoke-$(openssl rand -hex 16)"   # throwaway test value, never printed
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
+            --data "{\"value\":\"$value\"}" "$ui/api/vars/SMOKE_SECRET")"
+          echo "PUT without X-Firstmate-UI: HTTP $code"; [ "$code" = 403 ]
+          code="$(curl -s -o /tmp/put.json -w '%{http_code}' -X PUT -H 'X-Firstmate-UI: 1' -H 'Content-Type: application/json' \
+            --data "{\"value\":\"$value\"}" "$ui/api/vars/SMOKE_SECRET")"
+          echo "PUT with header: HTTP $code"; [ "$code" = 200 ]
+          curl -fs "$ui/api/settings" > /tmp/settings.json
+          jq -c '.vars[] | select(.key=="SMOKE_SECRET")' /tmp/settings.json
+          jq -e '.vars[] | select(.key=="SMOKE_SECRET") | .set == true and (has("value") | not)' /tmp/settings.json
+          if grep -qF "$value" /tmp/put.json /tmp/settings.json; then echo "API returned the secret value"; exit 1; fi
+          sudo stat -c '%a %n' "$d/settings" "$d/settings/env.sh" "$d/settings/settings.json"
+          [ "$(sudo stat -c %a "$d/settings/env.sh")" = 600 ]
+          [ "$(sudo stat -c %a "$d/settings/settings.json")" = 600 ]
+          [ "$(sudo stat -c %a "$d/settings")" = 700 ]
+          echo "::endgroup::"
+
+          echo "::group::the terminal container sees the setting (BASH_ENV, no value printed)"
+          [ "$(docker exec fm-smoke bash -c 'echo ${SMOKE_SECRET:+set}')" = set ]
+          [ "$(docker exec fm-smoke bash -c '[ "$SMOKE_SECRET" = "$1" ] && echo match' _ "$value")" = match ]
+          echo "::endgroup::"
+
+          echo "::group::real ttyd + tmux over the proxied WebSocket"
+          python3 "$APP_DIR/image/smoke_ws.py" "$ui" \
+            'echo "FM-SMOKE:${SMOKE_SECRET:+set}:$(basename "$PWD"):$(git rev-parse --short=12 HEAD)"' \
+            "FM-SMOKE:set:firstmate:e5b9dddc982e" 90
+          docker exec fm-smoke tmux ls
+          echo "::endgroup::"
+
+          echo "::group::harnesses and tools in the terminal container"
+          docker exec fm-smoke bash -lc 'set -e; for t in claude pi opencode gh git tmux jq node python3; do printf "%-9s %s\n" "$t" "$(command -v $t)"; done
+            claude --version; pi --version; opencode --version; gh --version | head -1'
+          echo "::endgroup::"
+
+          echo "::group::other app containers get 403"
+          ip="$(docker inspect -f '{{.NetworkSettings.IPAddress}}' web-smoke)"
+          for path in / /api/settings /terminal/; do
+            code="$(docker run --rm curlimages/curl:8.10.1 -s -o /dev/null -w '%{http_code}' "http://$ip:8080$path")"
+            echo "sibling container GET $path: HTTP $code"; [ "$code" = 403 ]
+          done
+          echo "::endgroup::"
+
+          echo "::group::logs (must not contain the value)"
+          docker logs fm-smoke 2>&1 | tail -n 50
+          docker logs web-smoke 2>&1 | tail -n 50
+          if { docker logs fm-smoke; docker logs web-smoke; } 2>&1 | grep -qF "$value"; then echo "secret value in logs"; exit 1; fi
+          echo "::endgroup::"

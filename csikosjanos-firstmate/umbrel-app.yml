@@ -1,0 +1,40 @@
+manifestVersion: 1
+id: csikosjanos-firstmate
+name: Firstmate
+tagline: One agent, a crew of coders
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-firstmate/icon.png
+category: developer
+version: "0.1.0"
+port: 3777
+description: >-
+  firstmate in tmux, reachable via a web terminal.
+
+
+  firstmate is an agent distro: you talk to one agent (the first mate) and it
+  runs a crew of coding agents for you, each in its own tmux window and git
+  worktree, and hands you finished PRs. This app gives it a home on your
+  Umbrel: open the app and you land in a tmux session in the browser, inside
+  a clone of firstmate, with Claude Code, Pi and OpenCode, gh and git
+  installed. Start one of them (claude, pi, opencode) and talk to it.
+
+
+  The Settings tab stores API keys, a GitHub token, your git identity and any
+  other environment variables for the harnesses. Values are write-only: they
+  are never shown again, only "set, updated <time>". Everything (logins,
+  projects, the firstmate clone) persists in the app's data folder.
+
+
+  The terminal is a root shell inside the app's container, protected by your
+  Umbrel login.
+developer: Kun Chen
+website: https://github.com/kunchenguid/firstmate
+submitter: csikosjanos
+submission: https://github.com/csikosjanos/umbrel-app-store
+repo: https://github.com/kunchenguid/firstmate
+support: https://github.com/kunchenguid/firstmate/issues
+gallery: []
+releaseNotes: "Initial package."
+dependencies: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""

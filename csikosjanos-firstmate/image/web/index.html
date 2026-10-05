@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firstmate</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#5b6470; --line:#d9dde3;
+          --accent:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d1117; --card:#161b22; --fg:#e6edf3; --muted:#8d96a0; --line:#30363d;
+            --accent:#4493f8; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif;
+         display:flex; flex-direction:column; }
+  nav { display:flex; align-items:center; gap:4px; padding:6px 12px; border-bottom:1px solid var(--line);
+        background:var(--card); flex-wrap:wrap; }
+  nav .brand { font-weight:600; margin-right:12px; }
+  nav a { color:var(--fg); text-decoration:none; padding:5px 10px; border-radius:6px; }
+  nav a[aria-current="page"] { background:var(--bg); box-shadow: inset 0 -2px 0 var(--accent); }
+  nav .right { margin-left:auto; display:flex; gap:12px; align-items:center; color:var(--muted); font-size:12px; }
+  nav .right a { padding:0; color:var(--muted); text-decoration:underline; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--muted); margin-right:4px; }
+  .dot.up { background:var(--ok); } .dot.down { background:var(--bad); }
+  #terminal { flex:1; display:flex; }
+  #terminal iframe { flex:1; border:0; width:100%; background:#000; }
+  #settings { flex:1; overflow:auto; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 40px; }
+  h2 { font-size:16px; margin:24px 0 6px; }
+  .hint { color:var(--muted); font-size:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:10px 14px; border-top:1px solid var(--line); }
+  .row:first-child { border-top:0; }
+  .key { font-family: ui-monospace, monospace; font-weight:600; min-width:200px; }
+  .label { color:var(--muted); font-size:12px; flex-basis:100%; margin-top:-4px; }
+  .state { color:var(--muted); font-size:12px; }
+  .state.set { color:var(--ok); }
+  .grow { flex:1; min-width:180px; }
+  input { width:100%; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px;
+          background:var(--bg); color:var(--fg); }
+  button { font: inherit; border:1px solid var(--line); background:var(--card); color:var(--fg);
+           border-radius:6px; padding:5px 10px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--bad); }
+  .err { color:var(--bad); min-height:1.4em; margin-top:8px; }
+  .ok { color:var(--ok); }
+  .notice { border:1px solid var(--warn); border-radius:8px; padding:10px 14px; margin:12px 0; }
+  code { font-family: ui-monospace, monospace; font-size:12.5px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<nav>
+  <span class="brand">Firstmate</span>
+  <a href="#terminal" id="tab-terminal">Terminal</a>
+  <a href="#settings" id="tab-settings">Settings</a>
+  <span class="right">
+    <span><span class="dot" id="dot"></span><span id="status">checking terminal…</span></span>
+    <a href="terminal/" target="_blank" rel="noopener">open terminal in its own tab</a>
+  </span>
+</nav>
+
+<section id="terminal" hidden></section>
+
+<section id="settings" hidden>
+<main>
+  <div class="notice">
+    Values are <b>write-only</b>: after saving, they are never shown again or returned by the API. They are
+    stored on the box in <code>app-data/csikosjanos-firstmate/settings/</code> (mode 0600) and exported to
+    every new shell in the terminal. <b>Changes apply to new shells only</b>: open a new tmux window
+    (<code>Ctrl-b c</code>) or run <code>source /settings/env.sh</code> in an existing one. Agents that are
+    already running keep the old values until restarted.
+  </div>
+
+  <h2>Secrets and API keys</h2>
+  <div class="hint">For the harnesses (Claude Code, Pi, OpenCode) and for <code>gh</code>/<code>git</code>.
+    Logging in interactively (<code>claude</code>, <code>gh auth login</code>, …) works too and persists.</div>
+  <div class="card" id="builtin"></div>
+
+  <h2>Git identity</h2>
+  <div class="hint">Exported as <code>GIT_AUTHOR_*</code> / <code>GIT_COMMITTER_*</code>. Leave empty to use <code>git config</code> instead.</div>
+  <div class="card">
+    <form class="row" id="git-form">
+      <div class="grow"><input id="git-name" placeholder="Name" maxlength="200" autocomplete="off"></div>
+      <div class="grow"><input id="git-email" placeholder="email@example.com" maxlength="254" autocomplete="off"></div>
+      <button class="primary" type="submit">Save</button>
+      <span class="state" id="git-state"></span>
+    </form>
+  </div>
+
+  <h2>Custom environment variables</h2>
+  <div class="hint">Any other <code>KEY=VALUE</code> the harnesses or your tools need. Values are write-only as well.</div>
+  <div class="card" id="custom"></div>
+  <div class="card" style="margin-top:8px">
+    <form class="row" id="add-form">
+      <div style="min-width:200px"><input id="add-key" placeholder="NAME" maxlength="128" autocomplete="off" spellcheck="false"></div>
+      <div class="grow"><input id="add-value" type="password" placeholder="value" autocomplete="new-password"></div>
+      <button class="primary" type="submit">Add</button>
+    </form>
+  </div>
+  <div class="err" id="err" role="alert"></div>
+</main>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const when = (t) => t ? new Date(t).toLocaleString() : "";
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (method !== "GET") opts.headers["X-Firstmate-UI"] = "1";
+  if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+
+function varRow(v) {
+  const state = v.set ? `<span class="state set">set, updated ${esc(when(v.updated))}</span>` : `<span class="state">not set</span>`;
+  return `<form class="row" data-key="${esc(v.key)}">
+      <span class="key">${esc(v.key)}</span>
+      <div class="grow"><input type="password" name="value" autocomplete="new-password"
+           placeholder="${v.set ? "enter a new value to replace it" : "value"}"></div>
+      <button class="primary" type="submit">Save</button>
+      ${v.set ? `<button class="danger" type="button" data-remove>Remove</button>` : ""}
+      ${state}
+      ${v.label ? `<span class="label">${esc(v.label)}</span>` : ""}
+    </form>`;
+}
+
+function render(s) {
+  $("builtin").innerHTML = s.vars.filter((v) => v.builtin).map(varRow).join("");
+  const custom = s.vars.filter((v) => !v.builtin);
+  $("custom").innerHTML = custom.length ? custom.map(varRow).join("")
+    : `<div class="row hint">No custom variables.</div>`;
+  if (document.activeElement !== $("git-name") && document.activeElement !== $("git-email")) {
+    $("git-name").value = s.git.name; $("git-email").value = s.git.email;
+  }
+  $("git-state").textContent = s.git.updated ? "updated " + when(s.git.updated) : "";
+}
+
+async function guarded(fn) {
+  $("err").textContent = "";
+  try { render(await fn()); } catch (e) { $("err").textContent = e.message; }
+}
+
+async function load() { await guarded(() => api("GET", "api/settings")); }
+
+document.addEventListener("submit", (ev) => {
+  const f = ev.target;
+  if (!f.dataset.key) return;
+  ev.preventDefault();
+  const input = f.querySelector("input[name=value]");
+  const value = input.value;
+  input.value = "";
+  guarded(() => api("PUT", "api/vars/" + encodeURIComponent(f.dataset.key), { value }));
+});
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-remove]");
+  if (!b) return;
+  const key = b.closest("form").dataset.key;
+  if (!confirm("Remove " + key + "?")) return;
+  guarded(() => api("DELETE", "api/vars/" + encodeURIComponent(key)));
+});
+$("git-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guarded(() => api("PUT", "api/git", { name: $("git-name").value, email: $("git-email").value }));
+});
+$("add-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const key = $("add-key").value.trim(), value = $("add-value").value;
+  $("add-value").value = "";
+  guarded(async () => { const s = await api("PUT", "api/vars/" + encodeURIComponent(key), { value }); $("add-key").value = ""; return s; });
+});
+
+function show() {
+  const tab = location.hash === "#settings" ? "settings" : "terminal";
+  for (const t of ["terminal", "settings"]) {
+    $(t).hidden = t !== tab;
+    $("tab-" + t).toggleAttribute("aria-current", t === tab);
+    if (t === tab) $("tab-" + t).setAttribute("aria-current", "page");
+  }
+  if (tab === "terminal" && !$("terminal").firstChild) {
+    // Created on first view only, so the tmux session is not attached in the background.
+    const f = document.createElement("iframe");
+    f.src = "terminal/"; f.title = "Terminal"; f.allow = "clipboard-read; clipboard-write";
+    $("terminal").appendChild(f);
+  }
+  if (tab === "settings") load();
+}
+window.addEventListener("hashchange", show);
+show();
+
+async function status() {
+  try {
+    const s = await api("GET", "api/status");
+    $("dot").className = "dot " + (s.terminal ? "up" : "down");
+    $("status").textContent = s.terminal ? "terminal running" : "terminal not running";
+  } catch (e) { $("dot").className = "dot down"; $("status").textContent = "web UI unreachable"; }
+}
+status(); setInterval(status, 15000);
+</script>
+</body>
+</html>
