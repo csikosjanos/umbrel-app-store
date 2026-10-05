@@ -99,11 +99,11 @@ jobs:
 
           echo "::group::web UI up, terminal up"
           for i in $(seq 120); do
-            curl -fs "$ui/api/status" | grep -q '"terminal": true' && break; sleep 1
+            grep -q '"terminal": true' <<<"$(curl -fs "$ui/api/status")" && break; sleep 1
           done
           curl -fs "$ui/api/status"; echo
-          curl -fs "$ui/api/status" | grep -q '"terminal": true'
-          curl -fs "$ui/" | grep -q "<title>Firstmate</title>"
+          grep -q '"terminal": true' <<<"$(curl -fs "$ui/api/status")"
+          grep -q "<title>Firstmate</title>" <<<"$(curl -fs "$ui/")"
           echo "::endgroup::"
 
           echo "::group::ttyd answers through the web container"
