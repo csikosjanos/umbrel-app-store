@@ -59,9 +59,12 @@ jobs:
   and connects to the container's IP, so its requests arrive from the Docker
   bridge gateway. Other app containers on `umbrel_main_network` arrive from
   their own IPs and get a 403. Allowed peers are 127.0.0.1, the container's
-  default-gateway IPs (from `/proc/net/route`), and, on older umbrelOS where
-  app_proxy is a container, `csikosjanos-github-runner_app_proxy_1`. The list
-  is re-resolved every 30 s, or right away when a request is refused.
+  default-gateway IPs (from `/proc/net/route`) and `EXTRA_ALLOWED_PEERS`. The
+  list is re-read every 30 s, or right away when a request is refused. The
+  name `csikosjanos-github-runner_app_proxy_1` is not trusted by default: on
+  umbrelOS 2.x no such container exists, so another app's container could
+  claim the name. Only on pre-2.0 umbrelOS (app_proxy as a sidecar container)
+  set `TRUST_APP_PROXY_NAME: "1"` on the `runner` service to trust it.
   Host-network apps, which are host-level already, still count as "the host".
   If a future umbrelOS connects from another address, the UI returns 403 and
   the runners keep running. Add `EXTRA_ALLOWED_PEERS: <ip>` to the `runner`

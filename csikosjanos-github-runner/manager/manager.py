@@ -36,6 +36,8 @@ RUNNERS = os.environ.get("RUNNERS_DIR", "/runners")
 GITHUB_API = os.environ.get("GITHUB_API", "https://api.github.com")
 GITHUB_URL = os.environ.get("GITHUB_URL", "https://github.com")
 PORT = int(os.environ.get("PORT", "8080"))
+# Pre-2.0 umbrelOS only (app_proxy was a sidecar container). Trusted only when
+# TRUST_APP_PROXY_NAME=1: on 2.x the name is free and any app could claim it.
 APP_PROXY_HOST = os.environ.get("APP_PROXY_HOST", "csikosjanos-github-runner_app_proxy_1")
 UID_BASE = 20000
 AS_ROOT = os.geteuid() == 0
@@ -517,16 +519,22 @@ _peers = {"at": 0, "ips": set()}
 
 
 def allowed_peers():
-    """Loopback, the bridge gateway (umbreld) and, on older umbrelOS where
-    app_proxy is a sidecar container, that container. Cached for 30s."""
+    """Loopback, the bridge gateway (umbreld) and EXTRA_ALLOWED_PEERS. Cached
+    for 30s.
+
+    The app_proxy container name is NOT trusted by default: on umbrelOS 2.x
+    that container doesn't exist, so another app's container could take the
+    name (or a network alias) and be let in. Set TRUST_APP_PROXY_NAME=1 only
+    on pre-2.0 umbrelOS, where app_proxy is a sidecar container."""
     if time.time() - _peers["at"] > 30:
         ips = {"127.0.0.1"} | gateway_ips()
         # Escape hatch if the gateway ever connects from somewhere else.
         ips |= {i.strip() for i in os.environ.get("EXTRA_ALLOWED_PEERS", "").split(",") if i.strip()}
-        try:
-            ips.add(socket.gethostbyname(APP_PROXY_HOST))
-        except OSError:
-            pass
+        if os.environ.get("TRUST_APP_PROXY_NAME") == "1":
+            try:
+                ips.add(socket.gethostbyname(APP_PROXY_HOST))
+            except OSError:
+                pass
         _peers.update(at=time.time(), ips=ips)
     return _peers["ips"]
 
