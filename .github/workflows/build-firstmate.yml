@@ -107,8 +107,10 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::ttyd answers through the web container"
-          curl -fs "$ui/terminal/" | grep -qi "ttyd"
-          curl -fs "$ui/terminal/token" | grep -q token
+          # Read into a variable first: with pipefail, `curl | grep -q` fails
+          # with curl exit 23 when grep stops reading a large page early.
+          page="$(curl -fs "$ui/terminal/")"; grep -qi "ttyd" <<<"$page"
+          tok="$(curl -fs "$ui/terminal/token")"; grep -q token <<<"$tok"
           # Only ttyd's read-only HTTP endpoints are proxied.
           [ "$(curl -s -o /dev/null -w '%{http_code}' "$ui/terminal/ws")" = 404 ]
           echo "::endgroup::"
