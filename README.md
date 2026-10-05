@@ -15,5 +15,6 @@ Add in Umbrel: **App Store → ⋯ → Community App Stores → Add** →
 | [<img src="./csikosjanos-cliproxyapi/icon.png" width="40">](https://github.com/jc01rho/CLIProxyAPIPlus) | [CLIProxyAPI](./csikosjanos-cliproxyapi/README.md) | AI API proxy with System One passthrough and CPAMC web console | 8317 |
 | [<img src="./csikosjanos-ollama-model-manager/icon.png" width="40">](https://github.com/mophead64/ollama-model-manager) | [Ollama Model Manager](./csikosjanos-ollama-model-manager/README.md) | Manage Ollama models: loaded/unload, details, pull from library or Hugging Face | 11435 |
 | [<img src="./csikosjanos-laya/icon.png" width="40">](https://github.com/NandhaKishorM/laya) | [Laya System One](./csikosjanos-laya/README.md) | Self-hosted System One decision model, TypeSafe Jev-compatible API | 8720 |
+| [<img src="./csikosjanos-firstmate/icon.png" width="40">](https://github.com/kunchenguid/firstmate) | [Firstmate](./csikosjanos-firstmate/README.md) | One agent, a crew of coders: firstmate in tmux in the browser, with a settings UI | 3777 |
 
 <sub>Logo → upstream project · App name → app docs (config, env vars, details)</sub>

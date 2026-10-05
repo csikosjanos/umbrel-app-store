@@ -1,0 +1,7 @@
+#!/bin/bash
+# Run by ttyd for every browser connection: attach to the shared tmux session
+# `fm`, creating it on the first connection. The tmux server inherits the
+# Settings from the web UI (env.sh); new windows re-read them (env-hook.sh).
+. /etc/firstmate/env-hook.sh
+cd /root/firstmate 2>/dev/null || cd /root
+exec tmux new-session -A -s fm
