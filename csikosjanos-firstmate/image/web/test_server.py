@@ -3,6 +3,7 @@
 Run: python3 -m unittest -v test_server.py   (no root, no Docker, no network)
 """
 import json
+import re
 import os
 import socket
 import socketserver
@@ -104,15 +105,15 @@ def env_after_source(var):
     return out.stdout
 
 
-def ws_handshake(origin=None, cookie=None, host=None):
+def ws_handshake(path="/terminal/ws", origin=None, cookie=None, host=None):
     s = socket.create_connection(("127.0.0.1", ui.server_port), timeout=5)
-    lines = ["GET /terminal/ws HTTP/1.1", "Host: %s" % (host or "127.0.0.1:%d" % ui.server_port),
+    lines = ["GET %s HTTP/1.1" % path, "Host: %s" % (host or "127.0.0.1:%d" % ui.server_port),
              "Upgrade: websocket", "Connection: Upgrade", "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
              "Sec-WebSocket-Version: 13", "Sec-WebSocket-Protocol: tty"]
     if origin:
         lines.append("Origin: " + origin)
     if cookie:
-        lines.append("Cookie: other=1; " + cookie)
+        lines.append("Cookie: " + cookie)
     s.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
     head = b""
     while b"\r\n\r\n" not in head:
@@ -123,18 +124,29 @@ def ws_handshake(origin=None, cookie=None, host=None):
     return s, head.decode("latin-1")
 
 
+def page_token():
+    """The token exactly as the UI page carries it."""
+    body = call("GET", "/", header=False)[1]
+    m = re.search(r'TERMINAL_URL = "terminal/\?fm_token=([A-Za-z0-9_-]+)"', body)
+    return m.group(1)
+
+
+def status_line(head):
+    return head.split("\r\n")[0]
+
+
 class T(unittest.TestCase):
     def tearDown(self):
         server._peers.update(at=0)
 
-    def test_01_index_and_cookie(self):
+    def test_01_index_embeds_terminal_token(self):
         code, body, headers = call("GET", "/", header=False)
         self.assertEqual(code, 200)
         self.assertIn("<title>Firstmate</title>", body)
-        cookie = headers.get("Set-Cookie", "")
-        self.assertIn("fm_ws=", cookie)
-        self.assertIn("HttpOnly", cookie)
-        self.assertIn("SameSite=Strict", cookie)
+        self.assertNotIn("__FM_TERMINAL_TOKEN__", body)
+        self.assertEqual(page_token(), server.TERMINAL_TOKEN)
+        self.assertNotIn("Set-Cookie", headers)
+        self.assertEqual(headers.get("Cache-Control"), "no-store")
 
     def test_02_secret_is_write_only(self):
         code, body, _ = call("PUT", "/api/vars/ANTHROPIC_API_KEY", {"value": SECRET})
@@ -207,37 +219,66 @@ class T(unittest.TestCase):
         self.assertNotIn("Z" * 36, json.dumps(s.view()))
 
     def test_09_terminal_http_proxy(self):
-        code, body, headers = call("GET", "/terminal/", header=False)
+        code, body, headers = call("GET", "/terminal/?fm_token=" + page_token(), header=False)
         self.assertEqual(code, 200)
         self.assertIn("fake ttyd", body)
-        self.assertIn("fm_ws=", headers.get("Set-Cookie", ""))
+        self.assertNotIn("Set-Cookie", headers)
+        # Query (token) and browser cookies are not passed to ttyd.
+        self.assertTrue(FakeTtyd.seen[-1].startswith("GET /terminal/ HTTP/1.1"))
+        call("GET", "/terminal/", header=False, headers={"Cookie": "UMBREL_PROXY_TOKEN=abc"})
+        self.assertNotIn("UMBREL_PROXY_TOKEN", FakeTtyd.seen[-1])
         code, _, headers = call("GET", "/terminal", header=False)
         self.assertEqual(code, 301)
         self.assertEqual(headers.get("Location"), "/terminal/")
-        # Browser cookies / auth headers are not passed to ttyd.
-        call("GET", "/terminal/", header=False, headers={"Cookie": "UMBREL_PROXY_TOKEN=abc"})
-        self.assertNotIn("UMBREL_PROXY_TOKEN", FakeTtyd.seen[-1])
+        # Only ttyd's known read-only endpoints are proxied.
+        n = len(FakeTtyd.seen)
+        for path in ("/terminal/ws", "/terminal/other", "/terminal/../api/settings"):
+            self.assertEqual(call("GET", path, header=False)[0], 404, path)
+        self.assertEqual(len(FakeTtyd.seen), n)
 
-    def test_10_websocket_same_origin(self):
-        host = "umbrel.local:3777"
-        s, head = ws_handshake(origin="http://" + host, host=host)
-        self.assertIn("101 Switching Protocols", head)
+    def test_10_websocket_with_page_token(self):
+        s, head = ws_handshake("/terminal/ws?fm_token=" + page_token())
+        self.assertIn("101 Switching Protocols", status_line(head))
         s.sendall(b"hello")
         self.assertEqual(s.recv(100), b"echo:hello")
         s.close()
-        self.assertNotIn("Origin", FakeTtyd.seen[-1])
+        req = FakeTtyd.seen[-1]
+        self.assertTrue(req.startswith("GET /terminal/ws HTTP/1.1"))
+        self.assertNotIn(server.TERMINAL_TOKEN, req)
+        self.assertNotIn("Origin", req)
 
-    def test_11_websocket_cross_origin(self):
-        s, head = ws_handshake(origin="http://evil.example")
-        self.assertIn(" 403 ", head.split("\r\n")[0])
-        s.close()
-        s, head = ws_handshake(origin="http://evil.example", cookie="fm_ws=wrong")
-        self.assertIn(" 403 ", head.split("\r\n")[0])
-        s.close()
-        # Host rewritten by a proxy: our SameSite=Strict cookie still proves same-site.
-        s, head = ws_handshake(origin="http://umbrel.local:3777", cookie="fm_ws=" + server.WS_COOKIE)
-        self.assertIn("101", head.split("\r\n")[0])
-        s.close()
+    def test_11_websocket_refused_without_token(self):
+        n = len(FakeTtyd.seen)
+        cases = [
+            ("/terminal/ws", None, None),                                   # no token, no Origin
+            ("/terminal/ws", "http://umbrel.local:3777", None),             # same origin, no token
+            ("/terminal/ws?fm_token=wrong", None, None),                    # wrong token
+            ("/terminal/ws?fm_token=", None, None),                         # empty token
+            # foreign Origin + cookies (the old cookie fallback) must not help
+            ("/terminal/ws", "http://umbrel.local:2000", "fm_ws=anything; UMBREL_PROXY_TOKEN=x"),
+            ("/terminal/other?fm_token=" + server.TERMINAL_TOKEN, None, None),  # not ttyd's ws path
+        ]
+        for path, origin, cookie in cases:
+            s, head = ws_handshake(path, origin=origin, cookie=cookie)
+            self.assertIn(" 403 ", status_line(head), (path, origin))
+            s.close()
+        self.assertEqual(len(FakeTtyd.seen), n)  # nothing reached ttyd
+        self.assertFalse(any(server.TERMINAL_TOKEN in line for line in LOGS))
+
+    def test_11b_peer_allowlist_has_no_dns_trust(self):
+        orig = socket.gethostbyname
+        socket.gethostbyname = lambda name: "172.17.0.99"  # a container claiming a name
+        try:
+            server._peers.update(at=0)
+            os.environ["EXTRA_ALLOWED_PEERS"] = "10.1.2.3"
+            ips = server.allowed_peers()
+        finally:
+            socket.gethostbyname = orig
+            del os.environ["EXTRA_ALLOWED_PEERS"]
+            server._peers.update(at=0)
+        self.assertEqual(ips, {"127.0.0.1", "10.1.2.3"} | server.gateway_ips())
+        self.assertNotIn("172.17.0.99", ips)
+        self.assertFalse(hasattr(server, "APP_PROXY_HOST"))
 
     def test_12_only_gateway_peers(self):
         server._peers.update(at=float("inf"), ips={"10.9.9.9"})
@@ -247,8 +288,8 @@ class T(unittest.TestCase):
             for method, path in (("GET", "/"), ("GET", "/api/settings"), ("GET", "/terminal/"),
                                  ("PUT", "/api/vars/X_PEER")):
                 self.assertEqual(call(method, path, {"value": "x"} if method == "PUT" else None)[0], 403, path)
-            s, head = ws_handshake()
-            self.assertIn(" 403 ", head.split("\r\n")[0])
+            s, head = ws_handshake("/terminal/ws?fm_token=" + server.TERMINAL_TOKEN)
+            self.assertIn(" 403 ", status_line(head))
             s.close()
         finally:
             server.allowed_peers = orig
@@ -258,6 +299,9 @@ class T(unittest.TestCase):
         server.TTYD_SOCK = os.path.join(TMP, "missing.sock")
         try:
             self.assertEqual(call("GET", "/terminal/", header=False)[0], 502)
+            s, head = ws_handshake("/terminal/ws?fm_token=" + server.TERMINAL_TOKEN)
+            self.assertIn(" 502 ", status_line(head))
+            s.close()
             self.assertEqual(json.loads(call("GET", "/api/status", header=False)[1]), {"terminal": False})
         finally:
             server.TTYD_SOCK = orig
@@ -266,7 +310,7 @@ class T(unittest.TestCase):
     def test_99_no_secret_in_logs(self):
         self.assertTrue(LOGS)
         joined = "\n".join(LOGS)
-        for needle in ("sk-ant-TEST", "Z" * 36, "v1"):
+        for needle in ("sk-ant-TEST", "Z" * 36, "v1", server.TERMINAL_TOKEN):
             self.assertNotIn(needle, joined)
 
 

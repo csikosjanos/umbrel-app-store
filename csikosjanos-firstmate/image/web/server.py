@@ -10,10 +10,17 @@ Design (see ../../README.md):
 - /terminal/... is proxied to ttyd's UNIX socket on a shared volume,
   WebSocket included. ttyd listens on no TCP port at all, so the only way
   to the shell is through this server.
-- Only Umbrel's app gateway may connect (peer allowlist, same approach as
-  csikosjanos-github-runner/manager). Mutating requests need the
-  X-Firstmate-UI header (CSRF). The WebSocket upgrade must be same-origin
-  or carry our SameSite=Strict cookie (cross-site WebSocket hijacking).
+- Only Umbrel's app gateway may connect: loopback + this container's
+  default-gateway IPs (+ EXTRA_ALLOWED_PEERS). No DNS-based trust: a name
+  like <app>_app_proxy_1 does not exist on umbrelOS 2.x, so another app's
+  container could claim it. Mutating requests need the X-Firstmate-UI
+  header (CSRF).
+- The terminal WebSocket needs TERMINAL_TOKEN, a per-process secret that is
+  only embedded in the UI page (same-origin read only; CSP blocks foreign
+  scripts). The page opens ttyd at /terminal/?fm_token=..., ttyd's client
+  appends location.search to its WebSocket URL, and the proxy compares it
+  with hmac.compare_digest. Origin/cookies are not trusted: other Umbrel
+  apps on the same host (other port) are same-site.
 
 Python stdlib only.
 """
@@ -35,7 +42,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 SETTINGS_DIR = os.environ.get("SETTINGS_DIR", "/settings")
 TTYD_SOCK = os.environ.get("TTYD_SOCK", "/run/fm/ttyd.sock")
 PORT = int(os.environ.get("PORT", "8080"))
-APP_PROXY_HOST = os.environ.get("APP_PROXY_HOST", "csikosjanos-firstmate_app_proxy_1")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 SETTINGS = os.path.join(SETTINGS_DIR, "settings.json")
@@ -57,8 +63,12 @@ RESERVED = set(GIT_KEYS) | {
 }
 KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 MAX_VALUE = 64 * 1024
-WS_COOKIE_NAME = "fm_ws"
-WS_COOKIE = secrets.token_urlsafe(32)
+TOKEN_PARAM = "fm_token"
+TERMINAL_TOKEN = secrets.token_urlsafe(32)  # rotates when the web container restarts
+TOKEN_PLACEHOLDER = b"__FM_TERMINAL_TOKEN__"
+# ttyd's HTTP endpoints under --base-path /terminal (all read-only). Anything
+# else is refused rather than passed through.
+TTYD_HTTP_PATHS = ("/terminal", "/terminal/", "/terminal/token")
 FORWARD_WS_HEADERS = ("Upgrade", "Connection", "Sec-WebSocket-Key", "Sec-WebSocket-Version",
                       "Sec-WebSocket-Protocol", "Sec-WebSocket-Extensions", "User-Agent")
 
@@ -267,26 +277,15 @@ _peers = {"at": 0, "ips": set()}
 
 
 def allowed_peers():
-    """Loopback, the bridge gateway (umbreld) and, on older umbrelOS where
-    app_proxy is a sidecar container, that container. Cached for 30s."""
+    """Loopback and the bridge gateway (umbreld's app gateway on umbrelOS
+    2.x), plus explicit IPs from EXTRA_ALLOWED_PEERS. Never a DNS name.
+    Cached for 30s."""
     if time.time() - _peers["at"] > 30:
         ips = {"127.0.0.1"} | gateway_ips()
         # Escape hatch if the gateway ever connects from somewhere else.
         ips |= {i.strip() for i in os.environ.get("EXTRA_ALLOWED_PEERS", "").split(",") if i.strip()}
-        try:
-            ips.add(socket.gethostbyname(APP_PROXY_HOST))
-        except OSError:
-            pass
         _peers.update(at=time.time(), ips=ips)
     return _peers["ips"]
-
-
-def cookie_value(header, name):
-    for part in (header or "").split(";"):
-        k, _, v = part.strip().partition("=")
-        if k == name:
-            return v
-    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -312,9 +311,6 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _ws_cookie(self):
-        return ("Set-Cookie", "%s=%s; Path=/; HttpOnly; SameSite=Strict" % (WS_COOKIE_NAME, WS_COOKIE))
-
     def _peer_ok(self):
         ip = self.client_address[0].removeprefix("::ffff:") if self.client_address else ""
         if ip in allowed_peers():
@@ -329,31 +325,23 @@ class Handler(BaseHTTPRequestHandler):
         return urllib.parse.urlsplit(self.path).path
 
     # --- terminal proxy
-    def _ws_allowed(self):
-        origin = self.headers.get("Origin")
-        if origin is None:
-            return True  # not a browser, so not cross-site hijacking
-        o = urllib.parse.urlsplit(origin).netloc.lower()
-        hosts = {(self.headers.get("Host") or "").lower()}
-        hosts |= {h.strip().lower() for h in (self.headers.get("X-Forwarded-Host") or "").split(",")}
-        if o and o in hosts:
-            return True
-        c = cookie_value(self.headers.get("Cookie"), WS_COOKIE_NAME)
-        if c and hmac.compare_digest(c, WS_COOKIE):
-            log("terminal: origin %s != host %s, allowed by session cookie" % (o, sorted(hosts)))
-            return True
-        log("terminal: refused WebSocket from origin %s" % o)
-        return False
+    def _token_ok(self):
+        """The WebSocket must carry TERMINAL_TOKEN (browser or not)."""
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        got = (q.get(TOKEN_PARAM) or [""])[0]
+        return bool(got) and hmac.compare_digest(got.encode(), TERMINAL_TOKEN.encode())
 
     def _proxy_ws(self):
-        if not self._ws_allowed():
-            return self._send(403, {"error": "cross-origin terminal connection refused"})
+        if self._path() != "/terminal/ws" or not self._token_ok():
+            log("terminal: refused WebSocket without a valid token")  # never log the URL
+            return self._send(403, {"error": "terminal token missing or wrong; reload the app"})
         try:
             up = ttyd_connect()
         except OSError:
             return self._send(502, {"error": "terminal is not running"})
         up.settimeout(None)
-        lines = ["GET %s HTTP/1.1" % self.path, "Host: localhost"]
+        # Path only: the token (query) is not passed on to ttyd.
+        lines = ["GET /terminal/ws HTTP/1.1", "Host: localhost"]
         for h in FORWARD_WS_HEADERS:
             v = self.headers.get(h)
             if v is not None:
@@ -367,12 +355,15 @@ class Handler(BaseHTTPRequestHandler):
             up.close()
 
     def _proxy_http(self):
+        path = self._path()
+        if path not in TTYD_HTTP_PATHS:
+            return self._send(404, {"error": "not found"})
         headers = {h: self.headers[h] for h in ("Accept", "Accept-Encoding", "Accept-Language",
                                                  "If-None-Match", "If-Modified-Since")
                    if self.headers.get(h)}
         conn = TtydHTTPConnection()
         try:
-            conn.request("GET", self.path, headers=headers)
+            conn.request("GET", path, headers=headers)  # query (token) dropped
             resp = conn.getresponse()
             body = resp.read()
         except OSError:
@@ -386,7 +377,6 @@ class Handler(BaseHTTPRequestHandler):
             if v:
                 self.send_header(h, v)
         self.send_header("Cache-Control", "no-store")
-        self.send_header(*self._ws_cookie())
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -402,7 +392,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._proxy_http()
         if path == "/":
             with open(os.path.join(HERE, "index.html"), "rb") as f:
-                return self._send(200, f.read(), "text/html; charset=utf-8", [self._ws_cookie()])
+                page = f.read().replace(TOKEN_PLACEHOLDER, TERMINAL_TOKEN.encode())
+            return self._send(200, page, "text/html; charset=utf-8")
         if path == "/api/settings":
             return self._send(200, self.store.view())
         if path == "/api/status":

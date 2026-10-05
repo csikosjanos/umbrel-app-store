@@ -58,7 +58,7 @@
   <a href="#settings" id="tab-settings">Settings</a>
   <span class="right">
     <span><span class="dot" id="dot"></span><span id="status">checking terminal…</span></span>
-    <a href="terminal/" target="_blank" rel="noopener">open terminal in its own tab</a>
+    <a href="#" id="own-tab" target="_blank" rel="noopener noreferrer">open terminal in its own tab</a>
   </span>
 </nav>
 
@@ -106,6 +106,10 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+// Per-process terminal token, filled in by the server when it serves this page.
+// ttyd's client appends this query to its WebSocket URL; the proxy requires it.
+const TERMINAL_URL = "terminal/?fm_token=__FM_TERMINAL_TOKEN__";
+$("own-tab").href = TERMINAL_URL;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const when = (t) => t ? new Date(t).toLocaleString() : "";
 
@@ -187,7 +191,7 @@ function show() {
   if (tab === "terminal" && !$("terminal").firstChild) {
     // Created on first view only, so the tmux session is not attached in the background.
     const f = document.createElement("iframe");
-    f.src = "terminal/"; f.title = "Terminal"; f.allow = "clipboard-read; clipboard-write";
+    f.src = TERMINAL_URL; f.title = "Terminal"; f.allow = "clipboard-read; clipboard-write";
     $("terminal").appendChild(f);
   }
   if (tab === "settings") load();

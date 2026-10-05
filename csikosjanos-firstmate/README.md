@@ -80,12 +80,22 @@ browser ──Umbrel login──▶ umbreld app gateway (:3777)
   `privileged`, `no-new-privileges` on both services.
 - The web server refuses every request (GET included) that does not come from Umbrel's app gateway. On
   umbrelOS 2.x the gateway runs inside umbreld on the host and connects from the Docker bridge gateway;
-  other app containers arrive from their own IPs and get 403 (same approach as the GitHub Runner app).
+  other app containers arrive from their own IPs and get 403. Trusted peers are **IPs only**: loopback,
+  the container's default gateway(s), and `EXTRA_ALLOWED_PEERS` (comma-separated IPs, unset by default).
+  No container name is resolved: `csikosjanos-firstmate_app_proxy_1` does not exist on umbrelOS 2.x, so
+  another app's container could claim that name or alias on the shared network.
 - Mutating API calls need an `X-Firstmate-UI: 1` header (a cross-site form or fetch cannot set it without a
   CORS preflight, which is never granted).
-- The terminal WebSocket must be same-origin (`Origin` = `Host`/`X-Forwarded-Host`) or carry the web UI's
-  `SameSite=Strict` session cookie, against cross-site WebSocket hijacking. If the gateway rewrites `Host`,
-  the cookie path is used and logged (origin/host only, no values).
+- The terminal WebSocket needs a **terminal token** (cross-site WebSocket hijacking). The web server
+  generates a random token at start, embeds it only in the UI page (readable same-origin only; the CSP
+  blocks foreign scripts), and the page opens ttyd at `terminal/?fm_token=…`; ttyd's client carries that
+  query into its WebSocket URL, and the proxy compares it in constant time. Every upgrade needs it, browser
+  or not. `Origin` and cookies are deliberately not trusted: another Umbrel app on the same host (different
+  port) is same-site, so `SameSite` cookies would be sent from its pages. The token rotates when `web`
+  restarts (reload the app), is never logged, and is not passed on to ttyd.
+- Only ttyd's read-only HTTP endpoints (`/terminal`, `/terminal/`, `/terminal/token`) are proxied; every
+  other `/terminal/...` path is 404. ttyd runs without a credential, so `/terminal/token` returns an empty
+  token; the shell is only reachable through the token-guarded WebSocket.
 - Secrets: `settings/` is 0700, its files 0600. Harness logins in `data/` are as safe as the box's disk.
   This repo is public: never commit anything from app-data.
 

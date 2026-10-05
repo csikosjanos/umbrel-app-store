@@ -3,16 +3,22 @@
 WebSocket proxy, run a command in the shell and wait for its output.
 
 Usage: smoke_ws.py HOST:PORT COMMAND EXPECTED [TIMEOUT]
-Exits 0 when EXPECTED appears in the terminal output. Stdlib only. Not
-shipped in the image.
+       smoke_ws.py HOST:PORT --expect-refused
+The terminal token is read from the UI page, exactly like the browser does.
+The first form exits 0 when EXPECTED appears in the terminal output. The
+second exits 0 when upgrades without the token (incl. a foreign Origin plus
+cookies) are refused and one with the token is accepted. Stdlib only. Not
+shipped in the image; never prints the token.
 """
 import base64
 import json
 import os
+import re
 import socket
 import struct
 import sys
 import time
+import urllib.request
 
 
 def frame(payload, opcode=2):
@@ -66,25 +72,68 @@ class Reader:
             self.buf += chunk
 
 
-def main():
-    hostport, command, expected = sys.argv[1:4]
-    timeout = float(sys.argv[4]) if len(sys.argv) > 4 else 60
+def page_token(hostport):
+    with urllib.request.urlopen("http://%s/" % hostport, timeout=10) as r:
+        body = r.read().decode()
+    m = re.search(r'TERMINAL_URL = "terminal/\?fm_token=([A-Za-z0-9_-]+)"', body)
+    if not m:
+        sys.exit("no terminal token in the UI page")
+    return m.group(1)
+
+
+def upgrade(hostport, path, origin=None, cookie=None):
+    """Send a WebSocket upgrade; return (socket, status line, rest)."""
     host, port = hostport.rsplit(":", 1)
     s = socket.create_connection((host, int(port)), timeout=10)
     key = base64.b64encode(os.urandom(16)).decode()
-    s.sendall(("GET /terminal/ws HTTP/1.1\r\nHost: %s\r\nOrigin: http://%s\r\n"
-               "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
-               "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: tty\r\n\r\n"
-               % (hostport, hostport, key)).encode())
+    extra = ""
+    if origin:
+        extra += "Origin: %s\r\n" % origin
+    if cookie:
+        extra += "Cookie: %s\r\n" % cookie
+    s.sendall(("GET %s HTTP/1.1\r\nHost: %s\r\n%sUpgrade: websocket\r\nConnection: Upgrade\r\n"
+               "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: tty\r\n\r\n"
+               % (path, hostport, extra, key)).encode())
     head = b""
     while b"\r\n\r\n" not in head:
         chunk = s.recv(4096)
         if not chunk:
-            sys.exit("no handshake response")
+            break
         head += chunk
-    status, rest = head.split(b"\r\n\r\n", 1)
-    print(status.decode("latin-1").split("\r\n")[0])
-    if b" 101 " not in status.split(b"\r\n")[0]:
+    status, _, rest = head.partition(b"\r\n\r\n")
+    return s, status.decode("latin-1").split("\r\n")[0], rest
+
+
+def expect_refused(hostport, token):
+    host = hostport.split(":")[0]
+    cases = [("no token", "/terminal/ws", None, None),
+             ("no token, same Origin", "/terminal/ws", "http://" + hostport, None),
+             ("foreign Origin + cookies", "/terminal/ws", "http://%s:2000" % host, "fm_ws=x; UMBREL_PROXY_TOKEN=x"),
+             ("wrong token", "/terminal/ws?fm_token=wrong", None, None)]
+    for name, path, origin, cookie in cases:
+        s, status, _ = upgrade(hostport, path, origin, cookie)
+        s.close()
+        print("%-26s -> %s" % (name, status))
+        if " 403 " not in status + " ":
+            sys.exit("expected 403 for: " + name)
+    s, status, _ = upgrade(hostport, "/terminal/ws?fm_token=" + token)
+    s.close()
+    print("%-26s -> %s" % ("token from the page", status))
+    if " 101 " not in status + " ":
+        sys.exit("upgrade with the page token was not accepted")
+    return 0
+
+
+def main():
+    hostport = sys.argv[1]
+    token = page_token(hostport)
+    if sys.argv[2:] == ["--expect-refused"]:
+        return expect_refused(hostport, token)
+    command, expected = sys.argv[2:4]
+    timeout = float(sys.argv[4]) if len(sys.argv) > 4 else 60
+    s, status, rest = upgrade(hostport, "/terminal/ws?fm_token=" + token, origin="http://" + hostport)
+    print(status)
+    if " 101 " not in status + " ":
         sys.exit("WebSocket upgrade refused")
     r = Reader(s)
     r.buf = rest
