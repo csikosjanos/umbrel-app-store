@@ -217,6 +217,37 @@ class T(unittest.TestCase):
             manager.allowed_peers = real
         self.assertEqual(call("GET", "/api/runners")[0], 200)
 
+    def test_9b_app_proxy_name_not_trusted_by_default(self):
+        # A container that claimed the app_proxy name on umbrelOS 2.x.
+        class FromOtherApp(manager.Handler):
+            def setup(self):
+                self.client_address = ("172.18.0.99", self.client_address[1])
+                super().setup()
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), FromOtherApp)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = "http://127.0.0.1:%d/api/runners" % srv.server_port
+        real = (manager.gateway_ips, manager.socket.gethostbyname)
+        manager.gateway_ips = lambda: {"10.21.0.1"}
+        manager.socket.gethostbyname = lambda host: "172.18.0.99"
+        try:
+            def status():
+                manager._peers["at"] = 0
+                try:
+                    with urllib.request.urlopen(url, timeout=10) as r:
+                        return r.status
+                except urllib.error.HTTPError as e:
+                    return e.code
+            os.environ.pop("TRUST_APP_PROXY_NAME", None)
+            self.assertEqual(status(), 403)
+            os.environ["TRUST_APP_PROXY_NAME"] = "1"  # pre-2.0 opt-in
+            self.assertEqual(status(), 200)
+        finally:
+            os.environ.pop("TRUST_APP_PROXY_NAME", None)
+            manager.gateway_ips, manager.socket.gethostbyname = real
+            manager._peers["at"] = 0
+            srv.shutdown()
+            srv.server_close()
+
     def test_99_runner_dirs_readable_up_the_hierarchy(self):
         # Real Runner.Listener needs read+execute on every parent directory.
         root = os.environ["RUNNERS_DIR"]

@@ -4,7 +4,7 @@ name: GitHub Runner
 tagline: Self-hosted GitHub Actions runners with a web UI
 icon: https://raw.githubusercontent.com/github/explore/main/topics/actions/actions.png
 category: developer
-version: "2.0.1"
+version: "2.0.2"
 port: 9200
 description: >-
   Self-hosted GitHub Actions runners with a web UI, packaged as an Umbrel app
@@ -33,6 +33,8 @@ repo: https://github.com/csikosjanos/umbrel-app-store/tree/main/csikosjanos-gith
 support: https://github.com/csikosjanos/umbrel-app-store/issues
 gallery: []
 releaseNotes: >-
+  2.0.2 — Security: the manager no longer trusts the app_proxy container
+  name, which is unused on umbrelOS 2.x and could be claimed by another app.
   2.0.1 — Fix: runners failed to register ("runner configure failed")
   because /runners was not readable by the runner user. 2.0.0 — Web UI replaces the static status page. Manage several runners
   (org or repo scope, labels, group, ephemeral, enabled), each with its own
