@@ -55,8 +55,16 @@ BUILTIN = (
     ("OPENROUTER_API_KEY", "OpenRouter API key"),
 )
 GIT_KEYS = ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")
+# CLI Proxy API (e.g. the csikosjanos-cliproxyapi app): when enabled, Claude
+# Code talks to the proxy (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN) and the
+# CLIPROXYAPI_* pair is there for Pi's models.json / OpenCode's config.
+PROXY_KEYS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLIPROXYAPI_BASE_URL", "CLIPROXYAPI_API_KEY")
+# Not exported while the proxy is on: Claude Code would send it to the proxy
+# and complain about two credentials.
+PROXY_HIDES = ("ANTHROPIC_API_KEY",)
+URL_RE = re.compile(r"^https?://[^\s/?#'\"\\]+(/[^\s?#'\"\\]*)?$")
 # Names that would break the shell or the container if set from the UI.
-RESERVED = set(GIT_KEYS) | {
+RESERVED = set(GIT_KEYS) | set(PROXY_KEYS) | {
     "BASH_ENV", "ENV", "HOME", "PATH", "SHELL", "USER", "PWD", "OLDPWD", "IFS", "PS1", "PS2",
     "PS4", "PROMPT_COMMAND", "SHELLOPTS", "BASHOPTS", "TERM", "TMUX", "TMUX_PANE", "LANG",
     "LD_PRELOAD", "LD_LIBRARY_PATH", "NPM_CONFIG_PREFIX", "HOSTNAME",
@@ -114,6 +122,24 @@ def validate_value(value):
     return value
 
 
+def validate_proxy(data):
+    enabled = data.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled: true or false")
+    url = str(data.get("url") or "").strip()
+    if url:
+        if len(url) > 2048 or not URL_RE.match(url):
+            raise ValueError("url: expected http(s)://host[:port][/path]")
+        # Claude Code appends /v1/messages itself, so the base has no /v1.
+        url = url.rstrip("/")
+        if url.endswith("/v1"):
+            url = url[:-3]
+    key = data.get("key")
+    if key is not None and key != "":
+        validate_value(key)
+    return enabled, url, key or None
+
+
 def validate_git(data):
     name = str(data.get("name") or "").strip()
     email = str(data.get("email") or "").strip()
@@ -131,7 +157,7 @@ class Store:
         self.lock = threading.Lock()
         os.makedirs(SETTINGS_DIR, exist_ok=True)
         os.chmod(SETTINGS_DIR, 0o700)
-        self.cfg = {"vars": {}, "git": {}, "managed": []}
+        self.cfg = {"vars": {}, "git": {}, "proxy": {}, "managed": []}
         if os.path.exists(SETTINGS):
             with open(SETTINGS) as f:
                 self.cfg.update(json.load(f))
@@ -150,7 +176,17 @@ class Store:
             out["GIT_AUTHOR_NAME"] = out["GIT_COMMITTER_NAME"] = git["name"]
         if git.get("email"):
             out["GIT_AUTHOR_EMAIL"] = out["GIT_COMMITTER_EMAIL"] = git["email"]
+        proxy = self.cfg["proxy"]
+        if self.proxy_active():
+            for k in PROXY_HIDES:
+                out.pop(k, None)
+            out["ANTHROPIC_BASE_URL"] = out["CLIPROXYAPI_BASE_URL"] = proxy["url"]
+            out["ANTHROPIC_AUTH_TOKEN"] = out["CLIPROXYAPI_API_KEY"] = proxy["key"]
         return out
+
+    def proxy_active(self):
+        p = self.cfg["proxy"]
+        return bool(p.get("enabled") and p.get("url") and p.get("key"))
 
     def render_env(self):
         env = self.exported()
@@ -176,9 +212,14 @@ class Store:
         custom = [{"key": k, "label": "", "builtin": False, "set": True, "updated": v.get("updated")}
                   for k, v in sorted(vars_.items()) if k not in names]
         git = self.cfg["git"]
+        proxy = self.cfg["proxy"]
         return {"vars": builtin + custom,
                 "git": {"name": git.get("name", ""), "email": git.get("email", ""),
-                        "updated": git.get("updated")}}
+                        "updated": git.get("updated")},
+                # The URL is not a secret; the key is write-only like every value.
+                "proxy": {"enabled": bool(proxy.get("enabled")), "url": proxy.get("url", ""),
+                          "key_set": bool(proxy.get("key")), "active": self.proxy_active(),
+                          "updated": proxy.get("updated")}}
 
     def set_var(self, key, value):
         validate_key(key)
@@ -197,6 +238,26 @@ class Store:
             del self.cfg["vars"][key]
             self._save()
         log("settings: %s removed" % key)
+
+    def set_proxy(self, data):
+        enabled, url, key = validate_proxy(data)
+        with self.lock:
+            old = self.cfg["proxy"]
+            key = key or old.get("key")  # empty key field = keep the saved one
+            if enabled and not (url and key):
+                raise ValueError("enabling needs both the URL and the API key")
+            self.cfg["proxy"] = {"enabled": enabled, "url": url, "updated": now()}
+            if key:
+                self.cfg["proxy"]["key"] = key
+            self._remember(*PROXY_KEYS, *PROXY_HIDES)
+            self._save()
+        log("settings: CLI Proxy API updated (%s)" % ("on" if enabled else "off"))
+
+    def delete_proxy(self):
+        with self.lock:
+            self.cfg["proxy"] = {}
+            self._save()
+        log("settings: CLI Proxy API removed")
 
     def set_git(self, data):
         name, email = validate_git(data)
@@ -418,6 +479,9 @@ class Handler(BaseHTTPRequestHandler):
             s = self.store
             if parts == ["api", "git"] and method == "PUT":
                 s.set_git(body)
+                return self._send(200, s.view())
+            if parts == ["api", "proxy"] and method in ("PUT", "DELETE"):
+                s.set_proxy(body) if method == "PUT" else s.delete_proxy()
                 return self._send(200, s.view())
             if len(parts) == 3 and parts[:2] == ["api", "vars"]:
                 key = urllib.parse.unquote(parts[2])

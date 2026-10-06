@@ -79,6 +79,24 @@
     Logging in interactively (<code>claude</code>, <code>gh auth login</code>, …) works too and persists.</div>
   <div class="card" id="builtin"></div>
 
+  <h2>CLI Proxy API</h2>
+  <div class="hint">Route the harnesses through a <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank"
+    rel="noopener noreferrer">CLIProxyAPI</a> server, for example the CLIProxyAPI app from this store. When on, Claude Code
+    uses it (<code>ANTHROPIC_BASE_URL</code> + <code>ANTHROPIC_AUTH_TOKEN</code>; <code>ANTHROPIC_API_KEY</code> is not
+    exported), and <code>CLIPROXYAPI_BASE_URL</code> / <code>CLIPROXYAPI_API_KEY</code> are exported for Pi and OpenCode
+    configs (see the app README). The API key is the proxy's <b>client</b> key, write-only.</div>
+  <div class="card">
+    <form class="row" id="proxy-form">
+      <label style="min-width:200px"><input type="checkbox" id="proxy-enabled" style="width:auto"> Use CLI Proxy API</label>
+      <div class="grow"><input id="proxy-url" placeholder="http://csikosjanos-cliproxyapi_server_1:8317" maxlength="2048"
+           autocomplete="off" spellcheck="false"></div>
+      <div class="grow"><input id="proxy-key" type="password" autocomplete="new-password"></div>
+      <button class="primary" type="submit">Save</button>
+      <button class="danger" type="button" id="proxy-remove" hidden>Remove</button>
+      <span class="state" id="proxy-state"></span>
+    </form>
+  </div>
+
   <h2>Git identity</h2>
   <div class="hint">Exported as <code>GIT_AUTHOR_*</code> / <code>GIT_COMMITTER_*</code>. Leave empty to use <code>git config</code> instead.</div>
   <div class="card">
@@ -145,6 +163,14 @@ function render(s) {
     $("git-name").value = s.git.name; $("git-email").value = s.git.email;
   }
   $("git-state").textContent = s.git.updated ? "updated " + when(s.git.updated) : "";
+  const p = s.proxy;
+  if (document.activeElement !== $("proxy-url")) $("proxy-url").value = p.url;
+  $("proxy-enabled").checked = p.enabled;
+  $("proxy-key").placeholder = p.key_set ? "client API key set; enter a new one to replace it" : "client API key (sk-…)";
+  $("proxy-remove").hidden = !(p.url || p.key_set);
+  $("proxy-state").className = "state" + (p.active ? " set" : "");
+  $("proxy-state").textContent = p.active ? "on, updated " + when(p.updated)
+    : p.updated ? "off, updated " + when(p.updated) : "not set";
 }
 
 async function guarded(fn) {
@@ -173,6 +199,16 @@ document.addEventListener("click", (ev) => {
 $("git-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
   guarded(() => api("PUT", "api/git", { name: $("git-name").value, email: $("git-email").value }));
+});
+$("proxy-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const key = $("proxy-key").value;
+  $("proxy-key").value = "";
+  guarded(() => api("PUT", "api/proxy", { enabled: $("proxy-enabled").checked, url: $("proxy-url").value, key }));
+});
+$("proxy-remove").addEventListener("click", () => {
+  if (!confirm("Remove the CLI Proxy API settings?")) return;
+  guarded(() => api("DELETE", "api/proxy"));
 });
 $("add-form").addEventListener("submit", (ev) => {
   ev.preventDefault();

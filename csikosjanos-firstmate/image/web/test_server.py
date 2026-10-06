@@ -307,6 +307,48 @@ class T(unittest.TestCase):
             server.TTYD_SOCK = orig
         self.assertEqual(json.loads(call("GET", "/api/status", header=False)[1]), {"terminal": True})
 
+    def test_14_cli_proxy_api(self):
+        call("PUT", "/api/vars/ANTHROPIC_API_KEY", {"value": SECRET})
+        # Enabling needs URL + key; bad URLs are refused.
+        self.assertEqual(call("PUT", "/api/proxy", {"enabled": True, "url": "http://p:8317"})[0], 400)
+        for url in ("ftp://p", "http://p 1", "http://p/'x", "notaurl"):
+            self.assertEqual(call("PUT", "/api/proxy", {"enabled": False, "url": url})[0], 400, url)
+        self.assertEqual(call("PUT", "/api/proxy", {"enabled": "yes", "url": "http://p"})[0], 400)
+        self.assertEqual(call("PUT", "/api/proxy", {"enabled": True, "url": "http://p", "key": "k"},
+                              header=False)[0], 403)
+        # /v1 and trailing slashes are dropped: Claude Code appends /v1/messages.
+        code, body, _ = call("PUT", "/api/proxy", {"enabled": True, "url": "http://cpa:8317/v1/",
+                                                   "key": "sk-proxy-" + "Q" * 30})
+        self.assertEqual(code, 200)
+        self.assertNotIn("Q" * 30, body)
+        self.assertEqual(json.loads(body)["proxy"], {
+            "enabled": True, "url": "http://cpa:8317", "key_set": True, "active": True,
+            "updated": server.Handler.store.cfg["proxy"]["updated"]})
+        self.assertEqual(env_after_source("ANTHROPIC_BASE_URL"), "http://cpa:8317")
+        self.assertEqual(env_after_source("ANTHROPIC_AUTH_TOKEN"), "sk-proxy-" + "Q" * 30)
+        self.assertEqual(env_after_source("CLIPROXYAPI_BASE_URL"), "http://cpa:8317")
+        self.assertEqual(env_after_source("CLIPROXYAPI_API_KEY"), "sk-proxy-" + "Q" * 30)
+        self.assertEqual(env_after_source("ANTHROPIC_API_KEY"), "<unset>")
+        # The proxy names cannot be set as custom variables.
+        self.assertEqual(call("PUT", "/api/vars/ANTHROPIC_BASE_URL", {"value": "x"})[0], 400)
+        # Off: an empty key keeps the saved one; the proxy vars go, the API key returns.
+        code, body, _ = call("PUT", "/api/proxy", {"enabled": False, "url": "http://cpa:8317", "key": ""})
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)["proxy"]["key_set"], True)
+        self.assertEqual(json.loads(body)["proxy"]["active"], False)
+        self.assertEqual(env_after_source("ANTHROPIC_BASE_URL"), "<unset>")
+        self.assertEqual(env_after_source("ANTHROPIC_AUTH_TOKEN"), "<unset>")
+        self.assertEqual(env_after_source("ANTHROPIC_API_KEY"), SECRET)
+        # Back on without re-entering the key, then removed.
+        self.assertEqual(call("PUT", "/api/proxy", {"enabled": True, "url": "http://cpa:8317"})[0], 200)
+        self.assertEqual(env_after_source("ANTHROPIC_AUTH_TOKEN"), "sk-proxy-" + "Q" * 30)
+        self.assertTrue(server.Store().view()["proxy"]["active"])  # survives a reload
+        code, body, _ = call("DELETE", "/api/proxy")
+        self.assertEqual(json.loads(body)["proxy"]["key_set"], False)
+        self.assertEqual(env_after_source("CLIPROXYAPI_API_KEY"), "<unset>")
+        self.assertEqual(env_after_source("ANTHROPIC_API_KEY"), SECRET)
+        self.assertFalse(any("Q" * 30 in line for line in LOGS))
+
     def test_99_no_secret_in_logs(self):
         self.assertTrue(LOGS)
         joined = "\n".join(LOGS)
