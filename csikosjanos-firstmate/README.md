@@ -39,6 +39,7 @@ The **Settings** tab stores environment variables for the harnesses and tools:
 | `GH_TOKEN` | Used by `gh`, and by `git` over HTTPS to github.com (the image sets `gh auth git-credential` as git's credential helper) |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | For the harnesses. Subscription logins (`claude` → `/login`, …) work without them |
 | Git name / email | Exported as `GIT_AUTHOR_*` / `GIT_COMMITTER_*` (empty = use `git config`) |
+| CLI Proxy API | Proxy URL + client API key + on/off, see below |
 | Custom variables | Any other `KEY=VALUE` (names like `PATH`, `HOME`, `BASH_ENV` are refused) |
 
 **Values are write-only**: the API accepts them but never returns them, the page never renders them, and
@@ -49,6 +50,46 @@ Remove.
 existing shell. Agents that are already running keep the values they started with; restart them to pick up a
 change. Commands started by tmux or by scripts (`bash -c …`, crewmate windows) re-read the settings
 automatically (`BASH_ENV`).
+
+### CLI Proxy API
+
+Routes the harnesses through a [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) server, for example
+the [CLIProxyAPI app](../csikosjanos-cliproxyapi/README.md) from this store. Fields: the proxy URL (shown; a
+trailing `/v1` is dropped), its **client** API key (`access.api-keys` in the proxy's config; write-only), and an
+on/off switch that keeps both saved.
+
+When on, every new shell gets:
+
+| Variable | Value | Used by |
+|---|---|---|
+| `ANTHROPIC_BASE_URL` | proxy URL | Claude Code (`/v1/messages` on the proxy) |
+| `ANTHROPIC_AUTH_TOKEN` | client key | Claude Code (`Authorization: Bearer`) |
+| `CLIPROXYAPI_BASE_URL`, `CLIPROXYAPI_API_KEY` | proxy URL, client key | your Pi / OpenCode config (below) |
+
+`ANTHROPIC_API_KEY` is **not exported** while the proxy is on (Claude Code would send it to the proxy too); it
+comes back when the proxy is switched off. These four names cannot be set as custom variables. The proxy must
+serve the `claude-*` model names Claude Code asks for (a Claude provider in the proxy, or model aliases).
+
+Pi and OpenCode take custom endpoints from config files with an explicit model list, so the app does not write
+them. For Pi, `~/.pi/agent/models.json` (`apiKey` supports `$NAME` interpolation; `baseUrl` is a literal):
+
+```json
+{
+  "providers": {
+    "cliproxyapi": {
+      "baseUrl": "http://csikosjanos-cliproxyapi_server_1:8317/v1",
+      "api": "openai-completions",
+      "apiKey": "$CLIPROXYAPI_API_KEY",
+      "models": [{ "id": "<a model the proxy serves>" }]
+    }
+  }
+}
+```
+
+**Untested:** whether `http://csikosjanos-cliproxyapi_server_1:8317` (the CLIProxyAPI app's container) is
+reachable from `fm` depends on both apps sharing a Docker network on umbrelOS. If not, use the box's LAN or
+tailnet address with port 8317 (that app has the Umbrel login off). Check with
+`curl -s "$CLIPROXYAPI_BASE_URL/v1/models" -H "Authorization: Bearer $CLIPROXYAPI_API_KEY"` in the terminal.
 
 ## Architecture
 

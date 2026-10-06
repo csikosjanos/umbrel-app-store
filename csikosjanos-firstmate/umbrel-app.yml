@@ -4,7 +4,7 @@ name: Firstmate
 tagline: One agent, a crew of coders
 icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-firstmate/icon.png
 category: developer
-version: "0.1.0"
+version: "0.2.0"
 port: 3777
 description: >-
   firstmate in tmux, reachable via a web terminal.
@@ -33,7 +33,11 @@ submission: https://github.com/csikosjanos/umbrel-app-store
 repo: https://github.com/kunchenguid/firstmate
 support: https://github.com/kunchenguid/firstmate/issues
 gallery: []
-releaseNotes: "Initial package."
+releaseNotes: >-
+  0.2.0: Settings can route the harnesses through a CLI Proxy API server
+  (e.g. the CLIProxyAPI app from this store): Claude Code uses it directly;
+  Pi and OpenCode get CLIPROXYAPI_BASE_URL / CLIPROXYAPI_API_KEY for their
+  configs.
 dependencies: []
 path: ""
 defaultUsername: ""

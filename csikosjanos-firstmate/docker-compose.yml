@@ -13,7 +13,7 @@ services:
   # Settings UI + terminal proxy. Small, no access to the home volume.
   # The only container that writes settings/; it never exposes the values.
   web:
-    image: ghcr.io/csikosjanos/firstmate-umbrel:0.1.0
+    image: ghcr.io/csikosjanos/firstmate-umbrel:0.2.0
     command: ["python3", "/opt/firstmate-web/server.py"]
     restart: unless-stopped
     volumes:
@@ -39,7 +39,7 @@ services:
   # so the only way in is the web service above (behind the Umbrel login).
   # No docker.sock, no host mounts beyond app-data, not privileged.
   fm:
-    image: ghcr.io/csikosjanos/firstmate-umbrel:0.1.0
+    image: ghcr.io/csikosjanos/firstmate-umbrel:0.2.0
     restart: unless-stopped
     hostname: firstmate
     stop_grace_period: 30s
