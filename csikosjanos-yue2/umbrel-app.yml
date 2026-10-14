@@ -1,0 +1,39 @@
+manifestVersion: 1
+id: csikosjanos-yue2
+name: YuE2
+tagline: Full songs with vocals from style tags and lyrics, with a web UI and job API
+icon: https://raw.githubusercontent.com/csikosjanos/umbrel-app-store/main/csikosjanos-yue2/icon.png
+category: ai
+version: "0.1.0"
+port: 8087
+path: ""
+description: >-
+  YuE2 is an open music model from M-A-P that writes an editable score
+  (melody and chords in ABC notation) and then renders a full song with
+  vocals and accompaniment in 48 kHz stereo. It can also cover an existing
+  recording in a new style with new lyrics.
+
+
+  This app runs yue2.cpp, a C++/GGML port of YuE2, with quantized GGUF
+  weights so it fits an 8 GB GPU. The browser UI writes style tags and
+  lyrics, shows the score the model composed, plays and downloads tracks.
+  The same server exposes a job API (POST /synth, GET /job) for scripts.
+
+
+  Needs an NVIDIA GPU. On first start it downloads about 5.4 GB of weights
+  from Hugging Face, so the first boot is slow. The model shares the GPU
+  with other apps (e.g. Ollama); free VRAM before generating.
+
+
+  Model weights are CC BY-NC 4.0: non-commercial use only.
+developer: M-A-P (model), ServeurpersoCom (yue2.cpp), packaged by csikosjanos
+website: https://github.com/ServeurpersoCom/yue2.cpp
+submitter: csikosjanos
+submission: ""
+repo: https://github.com/ServeurpersoCom/yue2.cpp
+support: https://github.com/ServeurpersoCom/yue2.cpp/issues
+gallery: []
+releaseNotes: ""
+dependencies: []
+defaultUsername: ""
+defaultPassword: ""

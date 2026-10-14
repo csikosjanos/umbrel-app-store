@@ -1,0 +1,37 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: csikosjanos-yue2_server_1
+      APP_PORT: 8087
+      # Umbrel login protects the web UI at /. The job API is open so scripts and
+      # Claude can call it (yue-server has no auth of its own).
+      # (Unverified: comma-separated PROXY_AUTH_WHITELIST syntax; test on the box.)
+      PROXY_AUTH_WHITELIST: "/synth,/job,/transcribe,/tokenize,/vae,/health,/props"
+
+  server:
+    image: ghcr.io/csikosjanos/yue2-server:cu124
+    restart: on-failure
+    stop_grace_period: 1m
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      # Backbone quant: Q8_0 (3.8 GB, near-lossless), Q6_K, Q5_K_M, BF16 (7.2 GB)
+      YUE2_QUANT: ${YUE2_QUANT:-Q8_0}
+      # 1 = also download covers/tokenizer models (~1 GB, loaded only when used)
+      YUE2_COVERS: ${YUE2_COVERS:-1}
+      # Empty = full context. 8192 lowers peak VRAM (~3.8 GB) but caps song length.
+      YUE2_MAX_SEQ: ${YUE2_MAX_SEQ:-}
+      YUE2_EXTRA_ARGS: ${YUE2_EXTRA_ARGS:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # models/ (downloaded on first start) and adapters/ (drop LoRA files here)
+      - ${APP_DATA_DIR}/data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
